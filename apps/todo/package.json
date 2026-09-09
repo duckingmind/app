@@ -10,11 +10,11 @@
   "dependencies": {
     "@ducking-mind/proxy-app-sdk": "^0.1.0",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^19.2.8"
   },
   "devDependencies": {
     "@types/react": "^18.2.0",
-    "@types/react-dom": "^18.2.0",
+    "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
     "typescript": "^5.2.2",
     "vite": "^8.2.2"
