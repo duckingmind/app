@@ -1,7 +1,7 @@
 # Proxy 应用开发规范
 
 Proxy 应用当前兼容运行在平台 iframe 沙箱中的 v1 纯前端应用。迁移后的 v2 应用运行在
-平台域名下的顶层页面，通过 `@codex/proxy-app-sdk` 的 HTTP 运行面调用平台服务，不依赖
+平台域名下的顶层页面，通过 `@ducking-mind/proxy-app-sdk` 的 HTTP 运行面调用平台服务，不依赖
 AppHost 或 Bridge。
 
 > **协议状态**：本文已有 Bridge 表格和路径描述属于 v1 旧包兼容契约；v2 目标设计见
@@ -122,7 +122,7 @@ proxy-app init
 ## SDK
 
 ```ts
-import { createAppClient } from '@codex/proxy-app-sdk'
+import { createAppClient } from '@ducking-mind/proxy-app-sdk'
 
 const app = createAppClient('app.proxy.example')
 const profile = await app.user.getProfile()
@@ -156,7 +156,7 @@ Vite 使用 SDK 提供的代理适配器：
 
 ```ts
 import { defineConfig } from 'vite'
-import { createPlatformDevProxy } from '@codex/proxy-app-sdk/vite'
+import { createPlatformDevProxy } from '@ducking-mind/proxy-app-sdk/vite'
 
 export default defineConfig({
   base: './',

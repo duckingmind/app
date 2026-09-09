@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { createAppClient } from '@codex/proxy-app-sdk'
+import { createAppClient } from '@ducking-mind/proxy-app-sdk'
 import { zipSync } from 'fflate'
 import {
   ArrowLeft,

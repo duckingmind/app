@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { createPlatformDevProxy } from '@codex/proxy-app-sdk/vite'
+import { createPlatformDevProxy } from '@ducking-mind/proxy-app-sdk/vite'
 
 export default defineConfig({
   base: './',

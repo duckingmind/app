@@ -1,5 +1,5 @@
 {
-  "name": "@codex/proxy-app-sdk",
+  "name": "@ducking-mind/proxy-app-sdk",
   "version": "0.1.0",
   "description": "TypeScript SDK for Proxy apps using HTTP APIs and compatible iframe Bridge runtimes",
   "repository": {

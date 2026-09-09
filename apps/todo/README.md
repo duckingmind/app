@@ -23,7 +23,7 @@ PROXY_USER_ACCESS_TOKEN=... npm run app -- upload apps/todo
 # 上传并提交审核
 PROXY_USER_ACCESS_TOKEN=... npm run app -- publish apps/todo
 ```
-The app uses `@codex/proxy-app-sdk` for host bridge calls.
+The app uses `@ducking-mind/proxy-app-sdk` for host bridge calls.
 
 从独立项目根目录执行：
 

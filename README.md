@@ -152,11 +152,11 @@ explicit local or separately authorized release step.
 该仓库本身是工具源码仓库。维护者发布 SDK/CLI 后，应用项目即可从 npm 安装：
 
 ```bash
-npm publish --workspace @codex/proxy-app-sdk
-npm publish --workspace @codex/proxy-app-cli
+npm publish --workspace @ducking-mind/proxy-app-sdk
+npm publish --workspace @ducking-mind/proxy-app-cli
 ```
 
-新应用脚手架默认依赖 `@codex/proxy-app-sdk@^0.1.0`。如果尚未发布到 npm，先在本地使用 workspace，或将依赖临时替换为已发布的 tarball；不要把 `node_modules` 提交到应用仓库。
+新应用脚手架默认依赖 `@ducking-mind/proxy-app-sdk@^0.1.0`。如果尚未发布到 npm，先在本地使用 workspace，或将依赖临时替换为已发布的 tarball；不要把 `node_modules` 提交到应用仓库。
 
 ## 开放生态分发边界
 
@@ -164,8 +164,8 @@ GitHub 是源码和协作中心，npm 是开发者安装中心，应用市场是
 
 | 产物 | 发布位置 | 使用者 | 是否进入线上应用包 |
 | --- | --- | --- | --- |
-| `@codex/proxy-app-sdk` | npm | 应用开发者，在源码工程中安装 | 只打包编译后的应用代码，不携带 SDK 源码和 `node_modules` |
-| `@codex/proxy-app-cli` | npm | 应用开发者，本地执行 `proxy-app` | 否，CLI 只在开发机运行 |
+| `@ducking-mind/proxy-app-sdk` | npm | 应用开发者，在源码工程中安装 | 只打包编译后的应用代码，不携带 SDK 源码和 `node_modules` |
+| `@ducking-mind/proxy-app-cli` | npm | 应用开发者，本地执行 `proxy-app` | 否，CLI 只在开发机运行 |
 | SDK、CLI、协议、示例源码 | GitHub | 维护者和开发者，阅读、提 issue、提交 PR | 否 |
 | 独立应用源码 | 开发者自己的 GitHub 仓库 | 应用开发团队 | 否 |
 | 应用 `dist` ZIP | 平台上传接口 / 应用市场 | 平台审核和用户 | 是，审核通过后由 CDN 提供 |

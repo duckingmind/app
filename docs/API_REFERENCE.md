@@ -27,7 +27,7 @@
 通过 SDK 握手提供短期 `ast_` App Session：
 
 ```ts
-import { createAppClient } from '@codex/proxy-app-sdk'
+import { createAppClient } from '@ducking-mind/proxy-app-sdk'
 
 const app = createAppClient('app.proxy.example')
 await app.platform.createSession()
@@ -55,7 +55,7 @@ Relay 地址；应用首次请求会打开平台登录，之后使用当前用�
 
 ```ts
 import { defineConfig } from 'vite'
-import { createPlatformDevProxy } from '@codex/proxy-app-sdk/vite'
+import { createPlatformDevProxy } from '@ducking-mind/proxy-app-sdk/vite'
 
 export default defineConfig({
   base: './',
@@ -243,7 +243,7 @@ for await (const event of app.api.stream('/responses/stream', {
 SDK 抛出的 `AppSdkError` 会保留 HTTP 状态和响应体：
 
 ```ts
-import { AppSdkError } from '@codex/proxy-app-sdk'
+import { AppSdkError } from '@ducking-mind/proxy-app-sdk'
 
 try {
   const result = await app.api.request('/images/generations', {

@@ -1,5 +1,5 @@
 {
-  "name": "@codex/proxy-app-cli",
+  "name": "@ducking-mind/proxy-app-cli",
   "version": "0.1.0",
   "description": "CLI for creating, building and publishing Proxy platform apps",
   "repository": {
@@ -30,7 +30,7 @@
     "fflate": "^0.8.2"
   },
   "engines": {
-    "node": ">=20.19"
+    "node": ">=22.12"
   },
   "license": "MIT"
 }

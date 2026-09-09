@@ -1,4 +1,4 @@
-# @codex/proxy-app-cli
+# @ducking-mind/proxy-app-cli
 
 CLI for developing, validating, packaging, and publishing applications for the
 Proxy App platform.
@@ -9,7 +9,7 @@ The CLI requires Node.js 20.19 or newer. Install it from npm after the package
 is published:
 
 ```bash
-npm install --global @codex/proxy-app-cli
+npm install --global @ducking-mind/proxy-app-cli
 ```
 
 When working in this repository, run it from the repository root instead:

@@ -1,6 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { createAppClient } from '@codex/proxy-app-sdk'
+import { createAppClient } from '@ducking-mind/proxy-app-sdk'
 
 const app = createAppClient('app.proxy.local.todo', { localDevelopment: import.meta.env.DEV, localAppVersion: '0.1.0' })
 

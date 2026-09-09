@@ -1,6 +1,6 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
-import { createAppClient, type AppSdkError } from '@codex/proxy-app-sdk'
+import { createAppClient, type AppSdkError } from '@ducking-mind/proxy-app-sdk'
 import appManifest from '../manifest.json'
 import './styles.css'
 

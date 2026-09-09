@@ -1,6 +1,6 @@
 # 衣境设计室
 
-使用当前仓库的 React、TypeScript、Vite 和 `@codex/proxy-app-sdk` 实现商品创作工作台，参考 DesignKit 的[商品套图](https://www.designkit.cn/product-kit)、[详情页](https://www.designkit.cn/product-kit/detailpage)、[服装试穿](https://www.designkit.cn/product-kit/try-on)和[爆款复刻](https://www.designkit.cn/product-kit/clone)流程。应用通过 Proxy 平台图片编辑、图片生成和 Responses API 工作，没有复制或接入 DesignKit 的私有生成服务。当前版本为 `0.2.0`。
+使用当前仓库的 React、TypeScript、Vite 和 `@ducking-mind/proxy-app-sdk` 实现商品创作工作台，参考 DesignKit 的[商品套图](https://www.designkit.cn/product-kit)、[详情页](https://www.designkit.cn/product-kit/detailpage)、[服装试穿](https://www.designkit.cn/product-kit/try-on)和[爆款复刻](https://www.designkit.cn/product-kit/clone)流程。应用通过 Proxy 平台图片编辑、图片生成和 Responses API 工作，没有复制或接入 DesignKit 的私有生成服务。当前版本为 `0.2.0`。
 
 ## 功能与机制
 
