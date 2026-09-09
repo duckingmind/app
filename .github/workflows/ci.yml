@@ -2,11 +2,16 @@ name: CI
 
 on:
   push:
+    branches: [main, master, v2]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

@@ -1,0 +1,584 @@
+{
+  "retrieved_at": "2026-09-08T08:36:01.513Z",
+  "public_asset_index": "https://pc.meitudata.com/ai-product-image/assets/js/index-Di_7pzgH.js",
+  "assets": [
+    {
+      "name": "product-original",
+      "source_page": "https://www.designkit.cn/product-kit",
+      "source_url": "https://xiuxiu-pro.meitudata.com/poster/6e3eebacad8d5e47e1896ee7d54827bc.png",
+      "original_file": "product-original.png",
+      "optimized_file": "../../src/assets/product-original.webp",
+      "content_type": "image/png",
+      "original_dimensions": [
+        1024,
+        1024
+      ],
+      "optimized_dimensions": [
+        1000,
+        1000
+      ],
+      "optimized_bytes": 69890
+    },
+    {
+      "name": "product-scene",
+      "source_page": "https://www.designkit.cn/product-kit",
+      "source_url": "https://xiuxiu-pro.meitudata.com/poster/21225fc86b28d9e4d85636483c67408e.png",
+      "original_file": "product-scene.png",
+      "optimized_file": "../../src/assets/product-scene.webp",
+      "content_type": "image/png",
+      "original_dimensions": [
+        1024,
+        1024
+      ],
+      "optimized_dimensions": [
+        1000,
+        1000
+      ],
+      "optimized_bytes": 48608
+    },
+    {
+      "name": "product-model",
+      "source_page": "https://www.designkit.cn/product-kit",
+      "source_url": "https://xiuxiu-pro.meitudata.com/poster/4b8e6d1bd0996be52822dd1fac73cffd.png",
+      "original_file": "product-model.png",
+      "optimized_file": "../../src/assets/product-model.webp",
+      "content_type": "image/png",
+      "original_dimensions": [
+        1024,
+        1024
+      ],
+      "optimized_dimensions": [
+        1000,
+        1000
+      ],
+      "optimized_bytes": 41694
+    },
+    {
+      "name": "product-detail",
+      "source_page": "https://www.designkit.cn/product-kit",
+      "source_url": "https://xiuxiu-pro.meitudata.com/poster/29dd195a450ee5a7f7451ded6680e969.png",
+      "original_file": "product-detail.png",
+      "optimized_file": "../../src/assets/product-detail.webp",
+      "content_type": "image/png",
+      "original_dimensions": [
+        1024,
+        1024
+      ],
+      "optimized_dimensions": [
+        1000,
+        1000
+      ],
+      "optimized_bytes": 51082
+    },
+    {
+      "name": "product-features",
+      "source_page": "https://www.designkit.cn/product-kit",
+      "source_url": "https://xiuxiu-pro.meitudata.com/poster/66bdef541b67588e8db2a03b39dc815b.jpg",
+      "original_file": "product-features.jpg",
+      "optimized_file": "../../src/assets/product-features.webp",
+      "content_type": "image/jpeg",
+      "original_dimensions": [
+        4267,
+        4267
+      ],
+      "optimized_dimensions": [
+        1000,
+        1000
+      ],
+      "optimized_bytes": 38646
+    },
+    {
+      "name": "detail-original-01",
+      "source_page": "https://www.designkit.cn/product-kit/detailpage",
+      "source_url": "https://xiuxiu-pro.meitudata.com/poster/182676711565ee98e20cf92d766d1643.png",
+      "original_file": "detail-original-01.png",
+      "optimized_file": "../../src/assets/detail-original-01.webp",
+      "content_type": "image/png",
+      "original_dimensions": [
+        207,
+        216
+      ],
+      "optimized_dimensions": [
+        207,
+        216
+      ],
+      "optimized_bytes": 4174
+    },
+    {
+      "name": "detail-original-02",
+      "source_page": "https://www.designkit.cn/product-kit/detailpage",
+      "source_url": "https://xiuxiu-pro.meitudata.com/poster/ba6312cbc3a32ceb8966f9ea20b9ee9c.png",
+      "original_file": "detail-original-02.png",
+      "optimized_file": "../../src/assets/detail-original-02.webp",
+      "content_type": "image/png",
+      "original_dimensions": [
+        207,
+        216
+      ],
+      "optimized_dimensions": [
+        207,
+        216
+      ],
+      "optimized_bytes": 1716
+    },
+    {
+      "name": "detail-original-03",
+      "source_page": "https://www.designkit.cn/product-kit/detailpage",
+      "source_url": "https://xiuxiu-pro.meitudata.com/poster/7ee5753a3141fa12cda155126c8225d3.png",
+      "original_file": "detail-original-03.png",
+      "optimized_file": "../../src/assets/detail-original-03.webp",
+      "content_type": "image/png",
+      "original_dimensions": [
+        207,
+        216
+      ],
+      "optimized_dimensions": [
+        207,
+        216
+      ],
+      "optimized_bytes": 2098
+    },
+    {
+      "name": "detail-long",
+      "source_page": "https://www.designkit.cn/product-kit/detailpage",
+      "source_url": "https://xiuxiu-pro.meitudata.com/poster/19ef313484fc87c9bdd3cd52ce2a5947.png",
+      "original_file": "detail-long.png",
+      "optimized_file": "../../src/assets/detail-long.webp",
+      "content_type": "image/png",
+      "original_dimensions": [
+        188,
+        672
+      ],
+      "optimized_dimensions": [
+        188,
+        672
+      ],
+      "optimized_bytes": 40598
+    },
+    {
+      "name": "detail-section-01",
+      "source_page": "https://www.designkit.cn/product-kit/detailpage",
+      "source_url": "https://xiuxiu-pro.meitudata.com/poster/e74e8d920ac0f87020f90457d42a7153.png",
+      "original_file": "detail-section-01.png",
+      "optimized_file": "../../src/assets/detail-section-01.webp",
+      "content_type": "image/png",
+      "original_dimensions": [
+        350,
+        216
+      ],
+      "optimized_dimensions": [
+        350,
+        216
+      ],
+      "optimized_bytes": 13952
+    },
+    {
+      "name": "detail-section-02",
+      "source_page": "https://www.designkit.cn/product-kit/detailpage",
+      "source_url": "https://xiuxiu-pro.meitudata.com/poster/1652064f17c5c2b32ce287244b505c15.png",
+      "original_file": "detail-section-02.png",
+      "optimized_file": "../../src/assets/detail-section-02.webp",
+      "content_type": "image/png",
+      "original_dimensions": [
+        350,
+        216
+      ],
+      "optimized_dimensions": [
+        350,
+        216
+      ],
+      "optimized_bytes": 13880
+    },
+    {
+      "name": "detail-section-03",
+      "source_page": "https://www.designkit.cn/product-kit/detailpage",
+      "source_url": "https://xiuxiu-pro.meitudata.com/poster/dd8abace327edf61d8a8e2d7db42cfbe.png",
+      "original_file": "detail-section-03.png",
+      "optimized_file": "../../src/assets/detail-section-03.webp",
+      "content_type": "image/png",
+      "original_dimensions": [
+        350,
+        216
+      ],
+      "optimized_dimensions": [
+        350,
+        216
+      ],
+      "optimized_bytes": 13474
+    },
+    {
+      "name": "detail-section-04",
+      "source_page": "https://www.designkit.cn/product-kit/detailpage",
+      "source_url": "https://xiuxiu-pro.meitudata.com/poster/7dc397f1cb76a35f7f0ed3c3ce78ba81.png",
+      "original_file": "detail-section-04.png",
+      "optimized_file": "../../src/assets/detail-section-04.webp",
+      "content_type": "image/png",
+      "original_dimensions": [
+        350,
+        216
+      ],
+      "optimized_dimensions": [
+        350,
+        216
+      ],
+      "optimized_bytes": 19282
+    },
+    {
+      "name": "detail-section-05",
+      "source_page": "https://www.designkit.cn/product-kit/detailpage",
+      "source_url": "https://xiuxiu-pro.meitudata.com/poster/1199bd8b968a5162752e1ee2b093d315.png",
+      "original_file": "detail-section-05.png",
+      "optimized_file": "../../src/assets/detail-section-05.webp",
+      "content_type": "image/png",
+      "original_dimensions": [
+        350,
+        216
+      ],
+      "optimized_dimensions": [
+        350,
+        216
+      ],
+      "optimized_bytes": 21366
+    },
+    {
+      "name": "detail-section-06",
+      "source_page": "https://www.designkit.cn/product-kit/detailpage",
+      "source_url": "https://xiuxiu-pro.meitudata.com/poster/7a8cdb3693418df9915741960f8f5aa8.png",
+      "original_file": "detail-section-06.png",
+      "optimized_file": "../../src/assets/detail-section-06.webp",
+      "content_type": "image/png",
+      "original_dimensions": [
+        350,
+        216
+      ],
+      "optimized_dimensions": [
+        350,
+        216
+      ],
+      "optimized_bytes": 25086
+    },
+    {
+      "name": "clone-product-reference-01",
+      "source_page": "https://www.designkit.cn/product-kit/clone",
+      "source_url": "https://xiuxiu-pro-new.meitudata.com/poster/09410334b3af7a754e17153b722a3e03.jpg",
+      "original_file": "clone-product-reference-01.jpg",
+      "optimized_file": "../../src/assets/clone-product-reference-01.webp",
+      "content_type": "image/jpeg",
+      "original_dimensions": [
+        272,
+        272
+      ],
+      "optimized_dimensions": [
+        272,
+        272
+      ],
+      "optimized_bytes": 14044
+    },
+    {
+      "name": "clone-product-reference-02",
+      "source_page": "https://www.designkit.cn/product-kit/clone",
+      "source_url": "https://xiuxiu-pro-new.meitudata.com/poster/6d987d4cc1a1d49d3ed7deff23843998.jpg",
+      "original_file": "clone-product-reference-02.jpg",
+      "optimized_file": "../../src/assets/clone-product-reference-02.webp",
+      "content_type": "image/jpeg",
+      "original_dimensions": [
+        272,
+        272
+      ],
+      "optimized_dimensions": [
+        272,
+        272
+      ],
+      "optimized_bytes": 11690
+    },
+    {
+      "name": "clone-product-reference-03",
+      "source_page": "https://www.designkit.cn/product-kit/clone",
+      "source_url": "https://xiuxiu-pro-new.meitudata.com/poster/ce715a6d0940a83862e96c4f2de7a5b7.jpg",
+      "original_file": "clone-product-reference-03.jpg",
+      "optimized_file": "../../src/assets/clone-product-reference-03.webp",
+      "content_type": "image/jpeg",
+      "original_dimensions": [
+        272,
+        272
+      ],
+      "optimized_dimensions": [
+        272,
+        272
+      ],
+      "optimized_bytes": 17896
+    },
+    {
+      "name": "clone-product-reference-04",
+      "source_page": "https://www.designkit.cn/product-kit/clone",
+      "source_url": "https://xiuxiu-pro-new.meitudata.com/poster/adf8ba7209379f1f94081e977278aeee.jpg",
+      "original_file": "clone-product-reference-04.jpg",
+      "optimized_file": "../../src/assets/clone-product-reference-04.webp",
+      "content_type": "image/jpeg",
+      "original_dimensions": [
+        272,
+        272
+      ],
+      "optimized_dimensions": [
+        272,
+        272
+      ],
+      "optimized_bytes": 16594
+    },
+    {
+      "name": "clone-product-original",
+      "source_page": "https://www.designkit.cn/product-kit/clone",
+      "source_url": "https://xiuxiu-pro-new.meitudata.com/poster/084cd66c8b58eda42e47caf6bec329fd.png",
+      "original_file": "clone-product-original.png",
+      "optimized_file": "../../src/assets/clone-product-original.webp",
+      "content_type": "image/png",
+      "original_dimensions": [
+        224,
+        224
+      ],
+      "optimized_dimensions": [
+        224,
+        224
+      ],
+      "optimized_bytes": 3706
+    },
+    {
+      "name": "clone-product-result-01",
+      "source_page": "https://www.designkit.cn/product-kit/clone",
+      "source_url": "https://xiuxiu-pro-new.meitudata.com/poster/edcc68a3007c6e071e2d645c31af24aa.jpg",
+      "original_file": "clone-product-result-01.jpg",
+      "optimized_file": "../../src/assets/clone-product-result-01.webp",
+      "content_type": "image/jpeg",
+      "original_dimensions": [
+        272,
+        272
+      ],
+      "optimized_dimensions": [
+        272,
+        272
+      ],
+      "optimized_bytes": 14238
+    },
+    {
+      "name": "clone-product-result-02",
+      "source_page": "https://www.designkit.cn/product-kit/clone",
+      "source_url": "https://xiuxiu-pro-new.meitudata.com/poster/cd38ca56c4e7ae225e68b9a05f042674.jpg",
+      "original_file": "clone-product-result-02.jpg",
+      "optimized_file": "../../src/assets/clone-product-result-02.webp",
+      "content_type": "image/jpeg",
+      "original_dimensions": [
+        272,
+        272
+      ],
+      "optimized_dimensions": [
+        272,
+        272
+      ],
+      "optimized_bytes": 11562
+    },
+    {
+      "name": "clone-product-result-03",
+      "source_page": "https://www.designkit.cn/product-kit/clone",
+      "source_url": "https://xiuxiu-pro-new.meitudata.com/poster/876a1625b8f51839078f443dcd654b42.jpg",
+      "original_file": "clone-product-result-03.jpg",
+      "optimized_file": "../../src/assets/clone-product-result-03.webp",
+      "content_type": "image/jpeg",
+      "original_dimensions": [
+        272,
+        272
+      ],
+      "optimized_dimensions": [
+        272,
+        272
+      ],
+      "optimized_bytes": 17482
+    },
+    {
+      "name": "clone-product-result-04",
+      "source_page": "https://www.designkit.cn/product-kit/clone",
+      "source_url": "https://xiuxiu-pro-new.meitudata.com/poster/c0a52579f5ec690d885afce72d34b089.jpg",
+      "original_file": "clone-product-result-04.jpg",
+      "optimized_file": "../../src/assets/clone-product-result-04.webp",
+      "content_type": "image/jpeg",
+      "original_dimensions": [
+        272,
+        272
+      ],
+      "optimized_dimensions": [
+        272,
+        272
+      ],
+      "optimized_bytes": 16086
+    },
+    {
+      "name": "clone-reference",
+      "source_page": "https://www.designkit.cn/product-kit/clone",
+      "source_url": "https://xiuxiu-pro-new.meitudata.com/poster/c166ac6cc5d3025cb4b27f3b3b7344a4.jpg",
+      "original_file": "clone-reference.jpg",
+      "optimized_file": "../../src/assets/clone-reference.webp",
+      "content_type": "image/jpeg",
+      "original_dimensions": [
+        394,
+        526
+      ],
+      "optimized_dimensions": [
+        394,
+        526
+      ],
+      "optimized_bytes": 49628
+    },
+    {
+      "name": "clone-result-01",
+      "source_page": "https://www.designkit.cn/product-kit/clone",
+      "source_url": "https://xiuxiu-pro-new.meitudata.com/poster/726739d20d560b926c6c5313446f2344.jpg",
+      "original_file": "clone-result-01.jpg",
+      "optimized_file": "../../src/assets/clone-result-01.webp",
+      "content_type": "image/jpeg",
+      "original_dimensions": [
+        418,
+        558
+      ],
+      "optimized_dimensions": [
+        418,
+        558
+      ],
+      "optimized_bytes": 97636
+    },
+    {
+      "name": "clone-result-02",
+      "source_page": "https://www.designkit.cn/product-kit/clone",
+      "source_url": "https://xiuxiu-pro-new.meitudata.com/poster/88c87c9dd5da4de6dbc6e75ddfd4453e.jpg",
+      "original_file": "clone-result-02.jpg",
+      "optimized_file": "../../src/assets/clone-result-02.webp",
+      "content_type": "image/jpeg",
+      "original_dimensions": [
+        418,
+        558
+      ],
+      "optimized_dimensions": [
+        418,
+        558
+      ],
+      "optimized_bytes": 88280
+    },
+    {
+      "name": "clone-apparel-reference",
+      "source_page": "https://www.designkit.cn/product-kit/clone",
+      "source_url": "https://xiuxiu-pro-new.meitudata.com/poster/5c517738bced15fbe9c04150a541deab.jpg",
+      "original_file": "clone-apparel-reference.jpg",
+      "optimized_file": "../../src/assets/clone-apparel-reference.webp",
+      "content_type": "image/jpeg",
+      "original_dimensions": [
+        400,
+        534
+      ],
+      "optimized_dimensions": [
+        400,
+        534
+      ],
+      "optimized_bytes": 37710
+    },
+    {
+      "name": "clone-apparel-original",
+      "source_page": "https://www.designkit.cn/product-kit/clone",
+      "source_url": "https://xiuxiu-pro-new.meitudata.com/poster/164754f34cfd9a416825b4c39f8fb7d2.png",
+      "original_file": "clone-apparel-original.png",
+      "optimized_file": "../../src/assets/clone-apparel-original.webp",
+      "content_type": "image/png",
+      "original_dimensions": [
+        218,
+        216
+      ],
+      "optimized_dimensions": [
+        218,
+        216
+      ],
+      "optimized_bytes": 8696
+    },
+    {
+      "name": "clone-apparel-result-01",
+      "source_page": "https://www.designkit.cn/product-kit/clone",
+      "source_url": "https://xiuxiu-pro-new.meitudata.com/poster/7298902910b95ac1e1456bf720783184.jpg",
+      "original_file": "clone-apparel-result-01.jpg",
+      "optimized_file": "../../src/assets/clone-apparel-result-01.webp",
+      "content_type": "image/jpeg",
+      "original_dimensions": [
+        418,
+        558
+      ],
+      "optimized_dimensions": [
+        418,
+        558
+      ],
+      "optimized_bytes": 32528
+    },
+    {
+      "name": "clone-apparel-result-02",
+      "source_page": "https://www.designkit.cn/product-kit/clone",
+      "source_url": "https://xiuxiu-pro-new.meitudata.com/poster/900916574dc9700df11c9cb9013a45cb.jpg",
+      "original_file": "clone-apparel-result-02.jpg",
+      "optimized_file": "../../src/assets/clone-apparel-result-02.webp",
+      "content_type": "image/jpeg",
+      "original_dimensions": [
+        418,
+        558
+      ],
+      "optimized_dimensions": [
+        418,
+        558
+      ],
+      "optimized_bytes": 36148
+    },
+    {
+      "name": "clone-poster-reference",
+      "source_page": "https://www.designkit.cn/product-kit/clone",
+      "source_url": "https://xiuxiu-pro-new.meitudata.com/poster/457a8d32915ec0f420675287abb7b2f5.jpg",
+      "original_file": "clone-poster-reference.jpg",
+      "optimized_file": "../../src/assets/clone-poster-reference.webp",
+      "content_type": "image/jpeg",
+      "original_dimensions": [
+        394,
+        526
+      ],
+      "optimized_dimensions": [
+        394,
+        526
+      ],
+      "optimized_bytes": 56774
+    },
+    {
+      "name": "clone-poster-result-01",
+      "source_page": "https://www.designkit.cn/product-kit/clone",
+      "source_url": "https://xiuxiu-pro-new.meitudata.com/poster/26f05889ecc6346b6620942aae342fe0.jpg",
+      "original_file": "clone-poster-result-01.jpg",
+      "optimized_file": "../../src/assets/clone-poster-result-01.webp",
+      "content_type": "image/jpeg",
+      "original_dimensions": [
+        418,
+        558
+      ],
+      "optimized_dimensions": [
+        418,
+        558
+      ],
+      "optimized_bytes": 76816
+    },
+    {
+      "name": "clone-poster-result-02",
+      "source_page": "https://www.designkit.cn/product-kit/clone",
+      "source_url": "https://xiuxiu-pro-new.meitudata.com/poster/a45982303bed1c8f61e0360f4206b500.jpg",
+      "original_file": "clone-poster-result-02.jpg",
+      "optimized_file": "../../src/assets/clone-poster-result-02.webp",
+      "content_type": "image/jpeg",
+      "original_dimensions": [
+        418,
+        558
+      ],
+      "optimized_dimensions": [
+        418,
+        558
+      ],
+      "optimized_bytes": 82174
+    }
+  ]
+}

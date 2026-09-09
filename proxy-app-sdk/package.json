@@ -1,7 +1,16 @@
 {
   "name": "@codex/proxy-app-sdk",
   "version": "0.1.0",
-  "description": "SDK for Codex proxy apps running in the app market iframe",
+  "description": "TypeScript SDK for Proxy apps using HTTP APIs and compatible iframe Bridge runtimes",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/duckingmind/app.git",
+    "directory": "proxy-app-sdk"
+  },
+  "homepage": "https://github.com/duckingmind/app/tree/main/proxy-app-sdk#readme",
+  "bugs": {
+    "url": "https://github.com/duckingmind/app/issues"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -28,5 +37,6 @@
   ],
   "devDependencies": {
     "typescript": "^5.2.2"
-  }
+  },
+  "license": "MIT"
 }

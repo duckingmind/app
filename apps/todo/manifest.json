@@ -1,0 +1,19 @@
+{
+  "schema": "proxy.app/v1",
+  "id": "app.proxy.local.todo",
+  "version": "1.0.0",
+  "name": "Todo Demo",
+  "description": "A starter app for the proxy app market",
+  "runtime": {
+    "type": "iframe",
+    "entry": "index.html"
+  },
+  "permissions": [
+    "user.profile.read",
+    "storage.user"
+  ],
+  "apis": [],
+  "backend": {
+    "type": "platform"
+  }
+}

@@ -1,8 +1,39 @@
 node_modules/
 dist/
 *.zip
+*.tgz
 .proxy-app.json
 .DS_Store
-apps
-!apps/todo
-!apps/chat
+
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+*.local
+*.log
+
+# Editor and operating-system metadata
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+*.swp
+
+# Test and coverage output
+coverage/
+.nyc_output/
+playwright-report/
+test-results/
+
+# Local platform snapshots and generated archives
+.proxy/
+releases/
+
+# Downloaded research responses are not application runtime assets. Keep the
+# source manifests and README files, but require an explicit license before
+# redistributing the original images.
+/apps/design/references/download/*
+!/apps/design/references/download/manifest.json
+/apps/design/references/modules/*
+!/apps/design/references/modules/README.md
+!/apps/design/references/modules/manifest.json

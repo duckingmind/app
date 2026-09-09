@@ -1,5 +1,17 @@
 # Proxy App Platform
 
+Open-source SDK, CLI, protocol documentation, and reference applications for
+building applications on the Proxy platform.
+
+This repository contains developer tooling and examples. It does not contain
+the platform's Portal, Admin API, Gateway, provider credentials, or production
+data. The examples call platform capabilities through the SDK; they do not
+copy or depend on a private provider service.
+
+Code is MIT licensed. See [NOTICE.md](NOTICE.md) for the separate provenance
+and redistribution limits that apply to the design example's demonstration
+images.
+
 独立的 Proxy 平台应用工具集，包含：
 
 - `proxy-app-sdk`：支持本地 HTTP 调用、注入 AppSession 的 direct 调用及旧版 iframe/Bridge 的应用 SDK。
@@ -17,7 +29,7 @@
 > 登录仍保留旧流程的一次性窗口通知；PKCE、生产顶层入口、存储 CAS 和开发数据隔离尚未完成。
 > `--legacy-bridge` 为使用旧 SDK 的应用保留兼容，不会自动改变新 SDK 的 HTTP 默认行为。
 
-## 快速开始
+## Quick start
 
 ```bash
 npm install
@@ -26,6 +38,12 @@ npm run example:build
 npm run example:validate
 npm run app -- doctor apps/todo
 ```
+
+Requirements: Node.js 20.19 or later (Node.js 22 LTS is recommended). Copy
+`.env.example` only when you need local environment defaults. Keep management
+tokens in the shell or CI secret store; never put them in a committed file.
+
+For a clean checkout, `npm ci` is the supported dependency installation path.
 
 ## 创建应用
 
@@ -94,6 +112,21 @@ app/
 ├── apps/                 # 示例应用集合：chat、idea-spark、todo
 └── docs/                 # 平台协议和开发规范
 ```
+
+## Public repository boundaries
+
+The repository is safe to publish when generated and credential-bearing files
+remain ignored. Before opening a pull request, check `git status --ignored` and
+confirm that no `.env`, `.proxy-app.json`, `dist/`, ZIP, local snapshot, token,
+cookie, provider key, or production log is staged. The source repository keeps
+optimized demo assets needed by the design example, plus source manifests for
+the research references. Original downloaded responses under
+`apps/design/references/` are ignored because a public URL does not grant
+redistribution or commercial-use rights.
+
+GitHub CI runs tests and builds. CI does not upload an app, submit a version
+for review, or access platform management APIs. App publication remains an
+explicit local or separately authorized release step.
 
 应用统一放在 `apps/<name>/`，不再嵌套 `examples`；应用使用平台后端能力，
 不需要 `app-backend` 项目。SDK 和 CLI 是可发布的 npm 包，`apps/*` 保持

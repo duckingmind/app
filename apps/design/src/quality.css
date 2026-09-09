@@ -1,0 +1,124 @@
+.work-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+.work-notes:empty {
+  display: none;
+}
+.work-plan,
+.work-quality {
+  border: 1px solid #e2e9e3;
+  border-radius: 6px;
+  background: #f7f9f6;
+  color: #708475;
+  min-width: 0;
+}
+.work-plan summary,
+.work-quality summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 10px;
+}
+.work-plan summary::-webkit-details-marker,
+.work-quality summary::-webkit-details-marker {
+  display: none;
+}
+.work-plan summary > span {
+  flex: 1;
+}
+.work-quality summary > small {
+  margin-left: auto;
+  text-align: right;
+  font-size: 9px;
+  line-height: 1.5;
+}
+.work-plan summary > svg,
+.work-quality summary > svg {
+  flex: none;
+}
+.work-plan[open] summary > svg:last-child,
+.work-quality[open] summary > svg:last-child {
+  transform: rotate(180deg);
+}
+.work-plan-content,
+.work-quality-content {
+  border-top: 1px solid #e7ece6;
+  padding: 11px;
+  font-size: 10px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.work-plan-content strong {
+  display: block;
+  font-size: 11px;
+  color: #425f4b;
+  margin-bottom: 6px;
+  font-weight: 500;
+  white-space: pre-wrap;
+}
+.work-plan-content p,
+.work-quality-content p {
+  white-space: pre-wrap;
+}
+.work-quality.passed {
+  color: #50825e;
+  background: #f1f7f0;
+  border-color: #dce9da;
+}
+.work-quality.needs_review {
+  color: #8c733d;
+  background: #faf7ee;
+  border-color: #ece3cc;
+}
+.work-quality.needs_review .work-quality-content {
+  border-top-color: #eee6d6;
+}
+.work-quality.unavailable {
+  color: #8a8981;
+  background: #f6f6f2;
+  border-color: #e8e8df;
+}
+.work-quality-content ul {
+  margin: 9px 0 0;
+  padding-left: 17px;
+}
+.work-quality-content li + li {
+  margin-top: 5px;
+}
+.work-quality-content time {
+  display: block;
+  margin-top: 9px;
+  opacity: 0.7;
+  font-size: 9px;
+}
+.work-review-action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 11px;
+}
+.work-review-action .secondary {
+  min-height: 30px;
+  font-size: 10px;
+  padding: 6px 8px;
+  color: inherit;
+  background: #ffffffa6;
+}
+.work-review-action > span {
+  font-size: 10px;
+}
+.work-review-action > small {
+  font-size: 9px;
+  color: #96a093;
+}
+.work-quality-content .work-review-error {
+  margin-top: 9px;
+  color: #a5664f;
+}

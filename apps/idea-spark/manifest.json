@@ -1,0 +1,24 @@
+{
+  "schema": "proxy.app/v1",
+  "id": "app.proxy.202609031911087086",
+  "version": "1.0.0",
+  "name": "灵感闪现",
+  "description": "把一个模糊想法变成可以立即使用的创意方案。",
+  "runtime": {
+    "type": "iframe",
+    "entry": "index.html"
+  },
+  "permissions": [
+    "storage.user"
+  ],
+  "apis": [
+    "model.responses"
+  ],
+  "backend": {
+    "type": "platform"
+  },
+  "pricing": {
+    "mode": "free",
+    "currency": "CNY"
+  }
+}

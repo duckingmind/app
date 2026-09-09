@@ -1,0 +1,24 @@
+{
+  "schema": "proxy.app/v1",
+  "id": "app.proxy.20260903223725e107",
+  "version": "0.1.1",
+  "name": "即刻对话",
+  "description": "一个基于平台文本模型的流式聊天应用。",
+  "runtime": {
+    "type": "iframe",
+    "entry": "index.html"
+  },
+  "permissions": [
+    "storage.user"
+  ],
+  "apis": [
+    "model.responses"
+  ],
+  "backend": {
+    "type": "platform"
+  },
+  "pricing": {
+    "mode": "free",
+    "currency": "CNY"
+  }
+}

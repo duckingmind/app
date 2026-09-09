@@ -1,0 +1,12 @@
+{
+  "schema": "proxy.app/v1",
+  "id": "app.proxy.202609081545090f11",
+  "version": "0.2.0",
+  "name": "衣境设计室",
+  "description": "商品套图、A+ 详情页、服饰虚拟试穿与爆款图复刻的一站式商品创作工作台。",
+  "runtime": { "type": "iframe", "entry": "index.html" },
+  "permissions": ["storage.user"],
+  "apis": ["model.images", "model.responses"],
+  "backend": { "type": "platform" },
+  "pricing": { "mode": "free", "currency": "CNY" }
+}

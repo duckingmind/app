@@ -2,6 +2,15 @@
   "name": "@codex/proxy-app-cli",
   "version": "0.1.0",
   "description": "CLI for creating, building and publishing Proxy platform apps",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/duckingmind/app.git",
+    "directory": "cli"
+  },
+  "homepage": "https://github.com/duckingmind/app/tree/main/cli#readme",
+  "bugs": {
+    "url": "https://github.com/duckingmind/app/issues"
+  },
   "type": "module",
   "bin": {
     "proxy-app": "./proxy-app.mjs"
