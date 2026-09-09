@@ -1,21 +1,39 @@
 # 灵感闪现
 
-一个使用 Proxy App 平台文本能力的轻量创意工作台。应用会从平台模型目录
-选择可用文本模型，通过 App Session 调用 `/v1/responses/stream`，实时展示
-生成结果，并使用 `storage.user` 保存最多 6 条当前用户的历史草稿。
+灵感闪现是一个轻量的创意工作台。输入一个想法，选择创作方向，即可生成
+一版可以继续修改的方案。结果可以复制、继续创作、重新生成，或保存为历史
+草稿。
 
-应用只选择平台公开的文本模型，不接触供应商、Endpoint、报价或上游凭证。
-流式调用失败时不会自动重复提交，用户可以通过结果区的“重试”主动发起一次新的
-生成；已生成结果可以复制、继续创作或从历史草稿恢复。
+## 创作方向
 
-应用标识只配置在项目根目录的 `manifest.json` 中。构建和打包会自动读取
-`manifest.id`，不需要每次通过命令行传入；当前标识为
-`app.proxy.202609031911087086`。
-上传平台时，该值必须与目标平台应用的 slug 完全一致。
+- 营销方案：整理卖点、受众和传播角度
+- 短视频脚本：规划开场、镜头和行动
+- 产品点子：梳理痛点、功能和差异化
 
-本地运行（直接访问本地页面，不需要宿主应用）：
+应用从平台模型目录选择可用的文本模型，通过 Responses 流式接口生成内容。
+最近的草稿保存在当前用户的 `storage.user` 中，最多保留 6 条。
+
+## 运行
+
+在本仓库的 `app` 目录执行：
 
 ```bash
+npm install
+npm run sdk:build
+npm run idea:build
+npm run app -- validate apps/idea-spark
 npm run app -- dev apps/idea-spark
-npm run build
 ```
+
+开发环境首次请求模型时可能需要完成平台登录。只运行 Vite 预览可以查看
+界面，但需要平台开发运行时才能生成方案。
+
+## 构建和打包
+
+```bash
+npm run idea:build
+npm run app -- pack apps/idea-spark dist/idea-spark.zip
+```
+
+上传 ZIP 到开发者控制台后，在宿主中测试版本，再提交发布。应用清单需要
+`storage.user` 权限和 `model.responses` 能力；运行时会话由宿主提供。

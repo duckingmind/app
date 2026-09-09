@@ -1,41 +1,45 @@
 # Todo Demo
 
-Run with Vite and package the built files with `manifest.json` at the ZIP root. The
-example uses `base: './'` so bundled assets continue to work from the platform's
-versioned asset URL.
+Todo Demo is a minimal React and Vite starter for a Proxy App. It shows how to
+create an SDK client, read the current user's profile, and save a small piece
+of user-scoped state. Use it as a starting point for a new app.
 
-在 `app/` 项目根目录可以使用统一 CLI：
+The app uses `base: './'`, so built assets work from the platform's versioned
+asset URL. Its manifest is packaged at the root of the release ZIP.
 
-```bash
-# 初始化一个新应用脚手架
-npm run app -- init apps/my-app --name "我的应用"
-npm run app -- create apps/my-app
+## Run locally
 
-# 本地开发、校验、构建和打包
-npm run app -- dev apps/todo
-npm run app -- validate apps/todo
-npm run app -- build apps/todo
-npm run app -- pack apps/todo /tmp/todo.zip
-
-# 仅上传版本（不提交审核）
-PROXY_USER_ACCESS_TOKEN=... npm run app -- upload apps/todo
-
-# 上传并提交审核
-PROXY_USER_ACCESS_TOKEN=... npm run app -- publish apps/todo
-```
-The app uses `@ducking-mind/proxy-app-sdk` for host bridge calls.
-
-从独立项目根目录执行：
+From this repository's `app` directory:
 
 ```bash
 npm install
-npm run example:build
-npm run example:validate
-npm run example:pack
+npm run sdk:build
+npm run app -- dev apps/todo
 ```
 
-Full platform documentation:
+For UI-only work, run the app's Vite script directly:
 
-```text
-../../docs/APP_MARKET.md
+```bash
+npm --workspace proxy-todo-app run dev
 ```
+
+The platform development command provides the runtime needed for SDK calls.
+
+## Validate, build, and package
+
+```bash
+npm run app -- validate apps/todo
+npm run app -- build apps/todo
+npm run app -- pack apps/todo dist/todo.zip
+```
+
+The same commands can be used with another app directory. To scaffold a new
+project, run:
+
+```bash
+npm run app -- init apps/my-app --name "My App"
+```
+
+Update the generated manifest with your app name, identifier, permissions, and
+API capabilities. Upload the resulting ZIP through the developer console,
+test the version in the host, and publish it when ready.
