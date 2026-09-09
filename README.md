@@ -32,18 +32,24 @@ images.
 ## Quick start
 
 ```bash
-npm install
+git clone https://github.com/duckingmind/app.git
+cd app
+npm ci
 npm run sdk:build
 npm run example:build
 npm run example:validate
-npm run app -- doctor apps/todo
 ```
 
-Requirements: Node.js 20.19 or later (Node.js 22 LTS is recommended). Copy
-`.env.example` only when you need local environment defaults. Keep management
-tokens in the shell or CI secret store; never put them in a committed file.
+Requirements: Node.js 22.12 or later (use `nvm use` for Node.js 22).
+The CLI reads exported shell variables; it does not load `.env` automatically.
+`.env.example` lists the supported platform settings. Keep management tokens
+in the shell or CI secret store; never put them in a committed file.
 
-For a clean checkout, `npm ci` is the supported dependency installation path.
+These checks do not need a platform account. Full verification is
+`npm run release:check`. Runtime login, models and storage need a compatible
+Proxy platform deployment; this repository does not start the platform servers.
+New checkouts must create or link their own platform application before `dev`
+or `doctor`, because `.proxy-app.json` is local and is not included in Git.
 
 ## 创建应用
 
@@ -75,11 +81,15 @@ HTTP 运行会话使用 `runtime_protocol: 2`，与发布包的 manifest schema 
 
 应用标识由平台生成。推荐先初始化本地工程，再通过 CLI 创建平台应用；CLI 会自动保存 `app_id` 并把平台 `slug` 写入 `manifest.id`。
 
+管理命令需要 Portal 当前登录用户的 `access_token`，不是模型 API Key。CLI 暂无 `login` 命令；令牌获取及不写入 shell 历史的输入方式见 [CLI 认证说明](cli/README.md#management-authentication)。切换平台环境时，需在目标平台重新 `create` 或 `link`，现有示例的 manifest 标识不代表你拥有该应用。
+
 ```bash
 npm run app -- init apps/my-app --name "我的应用"
 PROXY_API_BASE_URL=http://localhost:9003/api \
 PROXY_USER_ACCESS_TOKEN=... \
 npm run app -- create apps/my-app
+
+npm run app -- build apps/my-app
 
 PROXY_API_BASE_URL=http://localhost:9003/api \
 PROXY_USER_ACCESS_TOKEN=... \
@@ -109,20 +119,22 @@ npm run app -- doctor apps/my-app
 app/
 ├── cli/                  # 发布工具
 ├── proxy-app-sdk/        # TypeScript SDK
-├── apps/                 # 示例应用集合：chat、idea-spark、todo
+├── apps/                 # 示例应用集合：chat、idea-spark、todo、design
 └── docs/                 # 平台协议和开发规范
 ```
 
 ## Public repository boundaries
 
-The repository is safe to publish when generated and credential-bearing files
-remain ignored. Before opening a pull request, check `git status --ignored` and
+Before opening a pull request, check `git status --ignored` and
 confirm that no `.env`, `.proxy-app.json`, `dist/`, ZIP, local snapshot, token,
 cookie, provider key, or production log is staged. The source repository keeps
 optimized demo assets needed by the design example, plus source manifests for
 the research references. Original downloaded responses under
 `apps/design/references/` are ignored because a public URL does not grant
 redistribution or commercial-use rights.
+
+The optimized images have the same third-party rights restrictions as their
+originals; conversion to WebP does not grant a license. See [NOTICE.md](NOTICE.md).
 
 GitHub CI runs tests and builds. CI does not upload an app, submit a version
 for review, or access platform management APIs. App publication remains an

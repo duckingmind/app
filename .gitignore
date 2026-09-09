@@ -11,6 +11,12 @@ dist/
 !.env.example
 *.local
 *.log
+.npmrc
+*.pem
+*.key
+*.p12
+*.pfx
+*.tsbuildinfo
 
 # Editor and operating-system metadata
 .idea/

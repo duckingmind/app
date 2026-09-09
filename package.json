@@ -30,7 +30,7 @@
     "idea:validate": "node cli/proxy-app.mjs validate apps/idea-spark",
     "chat:validate": "node cli/proxy-app.mjs validate apps/chat",
     "example:pack": "node cli/proxy-app.mjs pack apps/todo dist/todo.zip",
-    "release:check": "npm run build && npm test && npm pack --dry-run --workspace @codex/proxy-app-cli && npm pack --dry-run --workspace @codex/proxy-app-sdk",
+    "release:check": "npm test && npm pack --dry-run --workspace @codex/proxy-app-cli && npm pack --dry-run --workspace @codex/proxy-app-sdk",
     "build": "npm run sdk:build && npm run example:build && npm run idea:build && npm run chat:build && npm run design:build && npm run example:validate && npm run idea:validate && npm run chat:validate && npm run design:validate",
     "test": "npm run sdk:build && node --test cli/*.test.mjs && npm run design:test && npm run example:build && npm run idea:build && npm run chat:build && npm run design:build && npm run example:validate && npm run idea:validate && npm run chat:validate && npm run design:validate"
   },
@@ -38,7 +38,7 @@
     "fflate": "^0.8.2"
   },
   "engines": {
-    "node": ">=20.19"
+    "node": ">=22.12"
   },
   "license": "MIT"
 }

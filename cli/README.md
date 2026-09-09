@@ -74,6 +74,7 @@ export PROXY_USER_ACCESS_TOKEN
 printf '\n'
 
 proxy-app create apps/my-app
+proxy-app build apps/my-app
 proxy-app upload apps/my-app
 proxy-app publish apps/my-app
 
