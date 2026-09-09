@@ -1,0 +1,27 @@
+{
+  "name": "@codex/proxy-app-cli",
+  "version": "0.1.0",
+  "description": "CLI for creating, building and publishing Proxy platform apps",
+  "type": "module",
+  "bin": {
+    "proxy-app": "./proxy-app.mjs"
+  },
+  "files": [
+    "proxy-app.mjs",
+    "local-dev-relay.mjs"
+  ],
+  "scripts": {
+    "test": "node --check proxy-app.mjs",
+    "prepublishOnly": "npm test"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "fflate": "^0.8.2"
+  },
+  "engines": {
+    "node": ">=20.19"
+  },
+  "license": "MIT"
+}

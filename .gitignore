@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.zip
+.proxy-app.json
+.DS_Store
+apps
+!apps/todo
+!apps/chat

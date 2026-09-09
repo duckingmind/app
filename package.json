@@ -1,0 +1,44 @@
+{
+  "name": "@codex/proxy-app-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Toolkit, SDK and examples for Proxy platform applications",
+  "type": "module",
+  "workspaces": [
+    "cli",
+    "proxy-app-sdk",
+    "apps/todo",
+    "apps/idea-spark",
+    "apps/chat",
+    "apps/design"
+  ],
+  "scripts": {
+    "app": "node cli/proxy-app.mjs",
+    "sdk:build": "npm --workspace @codex/proxy-app-sdk run build",
+    "sdk:dev": "npm --workspace @codex/proxy-app-sdk run dev",
+    "example:build": "npm --workspace proxy-todo-app run build",
+    "idea:build": "npm --workspace proxy-idea-spark-app run build",
+    "chat:build": "npm --workspace proxy-chat-app run build",
+    "chat:dev": "npm --workspace proxy-chat-app run dev",
+    "design:dev": "node cli/proxy-app.mjs dev apps/design",
+    "design:build": "npm --workspace proxy-design-app run build",
+    "design:test": "npm --workspace proxy-design-app test",
+    "design:validate": "node cli/proxy-app.mjs validate apps/design",
+    "design:pack": "npm run design:build && npm run app -- pack apps/design dist/design.zip",
+    "chat:pack": "npm run chat:build && npm run app -- pack apps/chat dist/chat.zip",
+    "example:validate": "node cli/proxy-app.mjs validate apps/todo",
+    "idea:validate": "node cli/proxy-app.mjs validate apps/idea-spark",
+    "chat:validate": "node cli/proxy-app.mjs validate apps/chat",
+    "example:pack": "node cli/proxy-app.mjs pack apps/todo dist/todo.zip",
+    "release:check": "npm run build && npm test && npm pack --dry-run --workspace @codex/proxy-app-cli && npm pack --dry-run --workspace @codex/proxy-app-sdk",
+    "build": "npm run sdk:build && npm run example:build && npm run idea:build && npm run chat:build && npm run design:build && npm run example:validate && npm run idea:validate && npm run chat:validate && npm run design:validate",
+    "test": "npm run sdk:build && node --test cli/*.test.mjs && npm run design:test && npm run example:build && npm run idea:build && npm run chat:build && npm run design:build && npm run example:validate && npm run idea:validate && npm run chat:validate && npm run design:validate"
+  },
+  "dependencies": {
+    "fflate": "^0.8.2"
+  },
+  "engines": {
+    "node": ">=20.19"
+  },
+  "license": "MIT"
+}
