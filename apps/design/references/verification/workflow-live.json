@@ -1,0 +1,90 @@
+{
+  "checkedAt": "2026-09-08T10:14:07.633Z",
+  "source": "Real local platform calls from the app using public headphone example assets",
+  "batch": "80f85f9b-e99f-41a2-aa96-a106a3f59263",
+  "textModel": "gpt-5.5",
+  "imageModel": "gpt-image-2",
+  "verified": {
+    "visionChallenge": true,
+    "structuredSevenImagePlan": true,
+    "listing": true,
+    "accountPersistence": true,
+    "refreshRestore": true,
+    "listingZipDownload": true,
+    "imageGeneration": false,
+    "generatedImageQualityReview": false
+  },
+  "works": [
+    {
+      "id": "2216dc4e-5797-46e3-a7c6-27ad7c60ccf1",
+      "title": "Complete Product on White",
+      "status": "failed",
+      "position": 0,
+      "batchSize": 7,
+      "hasPlan": true,
+      "hasReviewContext": true
+    },
+    {
+      "id": "36ab610e-dbc6-47d7-9271-16630b1f77e7",
+      "title": "Headset Worn in Profile",
+      "status": "skipped",
+      "position": 1,
+      "batchSize": 7,
+      "hasPlan": true,
+      "hasReviewContext": true
+    },
+    {
+      "id": "825bbc27-be8b-4323-9997-d3e06b6bd29e",
+      "title": "Desk Listening Setup",
+      "status": "skipped",
+      "position": 2,
+      "batchSize": 7,
+      "hasPlan": true,
+      "hasReviewContext": true
+    },
+    {
+      "id": "86c1b121-c215-44bc-9167-a78457774335",
+      "title": "Headband and Earcup Structure",
+      "status": "skipped",
+      "position": 3,
+      "batchSize": 7,
+      "hasPlan": true,
+      "hasReviewContext": true
+    },
+    {
+      "id": "756b83da-5c36-4d5e-b0ce-cf4bdea45e8c",
+      "title": "Visible Design Features",
+      "status": "skipped",
+      "position": 4,
+      "batchSize": 7,
+      "hasPlan": true,
+      "hasReviewContext": true
+    },
+    {
+      "id": "22460917-0224-47a6-a4a6-cdd3d1257263",
+      "title": "Microphone and Side Mark Close-Up",
+      "status": "skipped",
+      "position": 5,
+      "batchSize": 7,
+      "hasPlan": true,
+      "hasReviewContext": true
+    },
+    {
+      "id": "fb90ca53-8dad-482e-b186-e7fd3ffdeaf1",
+      "title": "Clean Everyday Product Moment",
+      "status": "skipped",
+      "position": 6,
+      "batchSize": 7,
+      "hasPlan": true,
+      "hasReviewContext": true
+    }
+  ],
+  "listing": "# Product Title\n\nOrange Over-Ear Headphones with Boom Microphone, Padded Headband, Large Ear Cushions, and Left Ear Cup Marking\n\n# 5 Key Features\n\n- **Bold Orange Design**: Full orange headphone body with a clean, coordinated look.\n- **Over-Ear Style**: Large ear cup design with visible cushioned ear pads.\n- **Boom Microphone**: Attached boom microphone positioned from the left side.\n- **Padded Headband**: Rounded headband with visible padding and stitched edge detail.\n- **Clear Left-Side Marking**: White “L” marking shown on the left ear cup for easy side identification.\n\n# Short Product Description\n\nThese orange over-ear headphones feature a bold monochrome design, large cushioned ear cups, a padded headband, and an attached boom microphone. The left ear cup includes a visible white “L” marking. Designed with a simple, clean appearance suitable for product pages and lifestyle display images.\n\n# Search Keywords\n\norange headphones, over ear headphones, headphones with boom mic, orange headset, padded headband headphones, large ear cup headphones, left marked headphones, orange over ear headset",
+  "download": "/Users/dingxiaohua/Downloads/design-1788861301510.zip",
+  "imageFailure": {
+    "taskId": "7d08946c-9daa-4884-b467-eaa05a8af31c",
+    "requestId": "6e9414b5-6564-4365-a494-79dd4e124f82",
+    "category": "provider_unavailable_before_acceptance",
+    "reason": "The only supplier submission returned HTTP 403 with a Cloudflare block page; remaining six app jobs were not submitted."
+  }
+}

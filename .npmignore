@@ -1,0 +1,21 @@
+# The root package is private, but keep proprietary desktop sources out of any
+# accidental npm pack or internal archive.
+node_modules/
+**/node_modules/
+desktop/
+proxy-app-desktop-runtime/
+desktop-runtime/
+docs/DESKTOP_RELEASE.md
+docs/ELECTRON_DESKTOP_ARCHITECTURE.md
+docs/DESKTOP_AGENT_INTEGRATION.md
+/Makefile
+dist/
+**/dist/
+coverage/
+**/coverage/
+.proxy-app.json
+**/.proxy-app.json
+*.zip
+*.tgz
+apps/design/references/download/**
+apps/design/references/modules/**

@@ -1,0 +1,82 @@
+node_modules/
+dist/
+dist-electron/
+# The desktop host and its generated runtime are maintained in a private
+# checkout. Keep them available to internal developers without publishing
+# their source from this repository.
+desktop/
+proxy-app-desktop-runtime/
+/Makefile
+docs/DESKTOP_RELEASE.md
+docs/ELECTRON_DESKTOP_ARCHITECTURE.md
+docs/DESKTOP_AGENT_INTEGRATION.md
+desktop/**/release/
+*.zip
+*.tgz
+.proxy-app.json
+.DS_Store
+
+# Desktop release publisher credentials. Keep release.config.example.json in
+# the repository; never commit the working config containing the API key.
+desktop/release-config.json
+desktop/release-config.local.json
+desktop/release.config.json
+desktop/release.config.local.json
+# Any named release profile may contain the API key; the example stays tracked.
+desktop/release.config.*.json
+!desktop/release.config.example.json
+# Generated public updater config is written during packaging and restored locally.
+desktop/update-config.json
+desktop/.electron-builder-release-*.json
+
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+*.local
+*.local.json
+*.local.yaml
+*.local.yml
+*.log
+.npmrc
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+kubeconfig
+*.kubeconfig
+*.secret.json
+*.secret.yaml
+*.secret.yml
+*.secrets.json
+*.secrets.yaml
+*.secrets.yml
+*-credentials.json
+*-credentials.yaml
+*-credentials.yml
+*.tsbuildinfo
+
+# Editor and operating-system metadata
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+*.swp
+
+# Test and coverage output
+coverage/
+.nyc_output/
+playwright-report/
+test-results/
+
+# Local platform snapshots and generated archives
+.proxy/
+releases/
+
+# Downloaded research responses are not application runtime assets. Keep the
+# source manifests and README files, but require an explicit license before
+# redistributing the original images.
+apps/design/references/download/*
+apps/design/references/modules/*

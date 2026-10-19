@@ -1,0 +1,131 @@
+.task-activity {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 14px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 8px 30px rgb(0 0 0 / 9%);
+}
+
+.task-activity-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.task-activity-status > svg {
+  flex: none;
+  color: var(--muted);
+}
+
+.task-activity-status strong {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.task-activity-stop,
+.task-activity-collapse,
+.task-activity-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  gap: 6px;
+  min-height: 34px;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.task-activity-stop {
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+}
+
+.task-activity-stop:hover:not(:disabled),
+.task-activity-collapse:hover,
+.task-activity-chip:hover {
+  background: var(--panel);
+}
+
+.task-activity-stop:disabled {
+  color: var(--muted);
+  opacity: 1;
+}
+
+.task-activity-collapse {
+  width: 30px;
+  padding: 0;
+  color: var(--muted);
+  border-radius: 8px;
+}
+
+.task-activity-hint {
+  grid-column: 1 / -1;
+  margin: -2px 0 0 28px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.task-activity-chip {
+  align-self: flex-end;
+  max-width: 100%;
+  min-height: 40px;
+  padding: 10px 13px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 9%);
+}
+
+.task-activity-chip > svg {
+  flex: none;
+  color: var(--muted);
+}
+
+.task-activity-stop:focus-visible,
+.task-activity-collapse:focus-visible,
+.task-activity-chip:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+
+@media (max-width: 480px) {
+  .task-activity {
+    gap: 8px;
+    padding: 12px;
+    border-radius: 14px;
+  }
+
+  .task-activity-stop,
+  .task-activity-collapse {
+    min-height: 40px;
+  }
+
+  .task-activity-collapse {
+    width: 34px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .task-activity .spin,
+  .task-activity-chip .spin {
+    animation: none;
+  }
+}

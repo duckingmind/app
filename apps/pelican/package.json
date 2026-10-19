@@ -1,0 +1,32 @@
+{
+  "name": "proxy-pelican-app",
+  "version": "0.1.2",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node ../../cli/proxy-app.mjs dev .",
+    "dev:server": "vite",
+    "preview": "vite preview --host 127.0.0.1",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && vite build && node ../../cli/agent-contract.mjs . dist",
+    "validate": "node ../../cli/proxy-app.mjs validate .",
+    "pack": "node ../../cli/proxy-app.mjs pack . --output dist/pelican.zip",
+    "test": "node --experimental-strip-types --test tests/agent-contract.test.ts"
+  },
+  "dependencies": {
+    "@ducking-mind/proxy-app-sdk": "file:../../proxy-app-sdk",
+    "lucide-react": "^0.468.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "typescript": "^5.2.2",
+    "vite": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=22.18"
+  }
+}

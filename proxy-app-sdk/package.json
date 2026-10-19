@@ -1,0 +1,42 @@
+{
+  "name": "@ducking-mind/proxy-app-sdk",
+  "version": "0.1.1",
+  "description": "TypeScript SDK for Proxy apps using server, direct, local and Electron runtimes",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/duckingmind/app.git",
+    "directory": "proxy-app-sdk"
+  },
+  "homepage": "https://github.com/duckingmind/app/tree/main/proxy-app-sdk#readme",
+  "bugs": {
+    "url": "https://github.com/duckingmind/app/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "default": "./dist/vite.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -w -p tsconfig.json",
+    "prepublishOnly": "npm run build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist"
+  ],
+  "devDependencies": {
+    "typescript": "^5.2.2"
+  },
+  "license": "MIT"
+}

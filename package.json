@@ -1,0 +1,27 @@
+{
+  "name": "@codex/proxy-app-platform",
+  "version": "0.1.2",
+  "private": true,
+  "description": "duckingmind public application tooling and SDK workspaces",
+  "type": "module",
+  "workspaces": [
+    "cli",
+    "proxy-app-sdk",
+    "apps/chat",
+    "apps/design",
+    "apps/pelican"
+  ],
+  "scripts": {
+    "build": "npm --prefix proxy-app-sdk run build",
+    "test": "npm --prefix cli test",
+    "verify:all": "node scripts/verify-workspaces.mjs",
+    "test:all": "node scripts/verify-workspaces.mjs"
+  },
+  "dependencies": {
+    "fflate": "^0.8.2"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "license": "UNLICENSED"
+}

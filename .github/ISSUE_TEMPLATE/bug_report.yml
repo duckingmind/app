@@ -1,0 +1,34 @@
+name: Bug report
+description: Report a reproducible problem in the SDK, CLI, or example apps.
+title: "[bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include tokens, cookies, provider credentials, private URLs, or user data.
+  - type: input
+    id: component
+    attributes:
+      label: Component
+      placeholder: CLI, SDK, chat app, design app
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions and environment
+      placeholder: commit, Node.js version, browser, OS
+    validations:
+      required: true

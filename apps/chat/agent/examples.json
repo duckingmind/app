@@ -1,0 +1,4 @@
+[
+  {"capability":"list_models","input":{},"output":{"revision":"current-revision","models":[]}},
+  {"capability":"send_message","input":{"idempotency_key":"send-20260923-001","expected_revision":"current-revision","conversation_id":"conversation-1","content":"请把这个想法整理成三步计划"},"output":{"status":"completed"}}
+]

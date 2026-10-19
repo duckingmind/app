@@ -1,0 +1,10 @@
+{
+  "schema": "proxy.app/v1",
+  "id": "pelican",
+  "version": "0.2.8",
+  "name": "Pelican Probe",
+  "description": "通过 llm-gateway 生成并展示鹈鹕骑自行车的 HTML/SVG 动画，用于观察模型输出质量。",
+  "assets": {
+    "icon": "favicon.svg"
+  }
+}

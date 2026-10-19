@@ -1,0 +1,43 @@
+.feedback-layer {
+  position: fixed;
+  inset: 68px 8px auto auto;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  width: min(404px, calc(100vw - 16px));
+  max-height: calc(100dvh - 80px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  /* Give card shadows room inside the scrollable notification stack. */
+  padding: 16px;
+  pointer-events: none;
+}
+.feedback-layer:empty { display: none; }
+.feedback-layer > * { pointer-events: auto; flex: none; }
+.feedback-layer > .toast {
+  position: static;
+  inset: auto;
+  width: 100%;
+  max-width: none;
+  transform: none;
+  border-radius: 12px;
+}
+.feedback-layer .notice-toast { align-items: flex-start; }
+.feedback-layer .notice-toast > svg { flex: none; margin-top: 2px; }
+.feedback-layer .notice-toast .icon-button { flex: none; width: 24px; height: 24px; margin: -3px -3px 0 0; }
+.resource-loading-toast { color: var(--text-secondary); }
+.resource-loading-toast > svg { flex: none; }
+@media (max-width: 720px) {
+  .feedback-layer {
+    top: max(60px, env(safe-area-inset-top));
+    right: 0;
+    width: 100vw;
+    max-height: calc(100dvh - 148px);
+    padding: 12px;
+    gap: 8px;
+  }
+  .feedback-layer > .toast { padding: 12px; }
+}

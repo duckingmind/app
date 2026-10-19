@@ -1,0 +1,6 @@
+[
+  { "capability": "read_metadata", "input": {}, "output": { "appId": "app.proxy.pelican.studio", "version": "0.1.0", "name": "鹈鹕画室" } },
+  { "capability": "read_studio", "input": {}, "output": { "revision": "studio-1", "title": "海风与鹈鹕", "settings": { "scene": "coast", "palette": "teal", "wing": "light", "lineWeight": 2.5, "decorations": true, "variant": 0 }, "savedCount": 0 } },
+  { "capability": "update_studio", "input": { "idempotency_key": "pelican-update-001", "expected_revision": "studio-1", "title": "晚霞骑行", "settings": { "scene": "sunset", "palette": "coral" } }, "output": { "revision": "studio-2", "title": "晚霞骑行", "settings": { "scene": "sunset", "palette": "coral", "wing": "light", "lineWeight": 2.5, "decorations": true, "variant": 0 }, "savedCount": 0 } },
+  { "capability": "save_artwork", "input": { "idempotency_key": "pelican-save-001", "expected_revision": "studio-2" }, "output": { "id": "artwork-1", "title": "晚霞骑行", "revision": "studio-3" } }
+]

@@ -1,0 +1,6 @@
+[
+  { "capability": "read_configuration", "input": {}, "output": { "revision": "current-revision", "assets": [], "uploads": [], "configuration": {} } },
+  { "capability": "list_models", "input": {}, "output": { "imageModels": [], "textModels": [] } },
+  { "capability": "list_works", "input": { "limit": 10 }, "output": { "works": [], "total": 0, "nextOffset": null, "batches": [] } },
+  { "capability": "submit_generation", "input": { "idempotency_key": "example-submit-1", "expected_revision": "current-revision" }, "output": { "batchId": "batch-id", "status": "accepted", "message": "accepted" } }
+]
