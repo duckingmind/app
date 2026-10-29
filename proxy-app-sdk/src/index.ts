@@ -1,36 +1,40 @@
 import { AppSdkError } from './types.js'
 import { agent } from './agent.js'
+import type { AppRuntimeRequestInit, AppRuntimeStreamEvent } from './types.js'
+export { uploadApplicationMediaAsset, MAX_APPLICATION_MEDIA_ASSET_BYTES } from './media-assets.js'
+export type { ApplicationMediaAssetApi, ApplicationMediaAssetUploadInput } from './media-assets.js'
+export type {
+  AppHandler,
+  AppFunctionsManifest,
+  AppRequestFunctionManifest,
+  AppRuntimeContext,
+  AppRuntimeUser,
+  AppTask,
+  AppTaskContext,
+  AppTaskFunction,
+  AppTaskFunctionManifest,
+} from './runtime.js'
 export { agent, createAgentBridge, dispatchAgentInvocation } from './agent.js'
-export type { AgentAccess, AgentTarget, AgentEnvironment, AgentBridge, AgentCapabilityDeclaration, AgentContractMetadata, AgentCapabilityRegistration, AgentHandler, AgentInvocationContext, AgentRuntimeRegistration, AgentRuntimeStatus, AgentNextAction } from './agent.js'
-import type { AppApiRequestInit, AppApiResponseType, AppApiStreamEvent, AppAuthStatus, AppClientOptions, AppProfile, AppSession, ElectronHostBridge, LocalLoginDetails, LocalLoginFailureMessage, LocalLoginOptions, StorageBatchOperation, StorageEntry, StorageEntryAuthor, StorageListOptions, StorageListResult, StorageOperationOptions, StorageWriteOptions, WorkspaceStorage } from './types.js'
+export type { AgentAccess, AgentTarget, AgentEnvironment, AgentBridge, AgentCapabilityDeclaration, AgentContractMetadata, AgentCapabilityRegistration, AgentRuntimeCapabilityRegistration, AgentHandler, AgentInvocationContext, AgentRuntimeRegistration, AgentRuntimeStatus, AgentNextAction } from './agent.js'
+import type { AppApiRequestInit, AppApiResponseType, AppApiStreamEvent, AppAuthStatus, AppClientOptions, AppProfile, AppSession, ElectronHostBridge, LocalLoginOptions, StorageBatchOperation, StorageEntry, StorageEntryAuthor, StorageListOptions, StorageListResult, StorageOperationOptions, StorageWriteOptions, WorkspaceStorage } from './types.js'
 export { AppSdkError }
-export type { AppApiRequestInit, AppApiResponseType, AppApiStreamEvent, AppAuthStatus, AppClientOptions, AppProfile, AppSession, ElectronHostBridge, LocalLoginDetails, LocalLoginFailureMessage, LocalLoginOptions, StorageBatchOperation, StorageEntry, StorageEntryAuthor, StorageListOptions, StorageListResult, StorageOperationOptions, StorageWriteOptions, WorkspaceStorage } from './types.js'
+export type { AppApiRequestInit, AppApiResponseType, AppApiStreamEvent, AppAuthStatus, AppClientOptions, AppProfile, AppRuntimeRequestInit, AppRuntimeStreamEvent, AppSession, ElectronHostBridge, LocalLoginOptions, StorageBatchOperation, StorageEntry, StorageEntryAuthor, StorageListOptions, StorageListResult, StorageOperationOptions, StorageWriteOptions, WorkspaceStorage } from './types.js'
 
 const PLATFORM_APP_ID_PATTERN = /^app_[a-z0-9][a-z0-9._-]{2,119}$/
 const PUBLIC_APP_SLUG_PATTERN = /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/
 const validPublicAppSlug = (value: unknown): value is string =>
   typeof value === 'string' && value.length <= 120 && value === value.trim() && PUBLIC_APP_SLUG_PATTERN.test(value)
-// Keep historical server IDs readable, but do not widen this validator to
-// bare public slugs. A new slug still has to resolve to a server-owned ID.
-const SERVER_APP_ID_PATTERN = /^(?:app_[a-z0-9][a-z0-9._-]{2,119}|[a-z0-9]+(?:[.-][a-z0-9]+)+)$/
-const SERVER_SESSION_CHECK_AGE_MS = 60_000
 const APP_SESSION_DEFAULT_TTL_SECONDS = 30 * 24 * 60 * 60
-const SERVER_REFRESH_RETRY_MS = [1_000, 3_000, 10_000, 30_000]
-const PORTAL_AUTH_CHANGE_KEY = 'proxy-app:auth-change'
 const GATEWAY_SESSION_STORAGE_PREFIX = 'proxy-app:gateway-session:'
-let runtimeCookieFlight: Promise<unknown> = Promise.resolve()
-async function withRuntimeCookieLock<T>(operation: () => Promise<T>): Promise<T> {
-  if (typeof navigator !== 'undefined' && navigator.locks?.request) {
-    return await navigator.locks.request('proxy-app:runtime-session', operation)
-  }
-  // Older browsers still serialize clients in this document. Server-side
-  // expected-account checks remain the authority across other documents.
-  const flight = runtimeCookieFlight.catch(() => undefined).then(operation)
-  runtimeCookieFlight = flight.then(() => undefined, () => undefined)
-  return flight
-}
 const APP_TASK_ID_PATTERN = '[A-Za-z0-9][A-Za-z0-9._:-]{0,127}'
 const APP_API_ROUTES: Array<{ method: string; pattern: RegExp }> = [
+  // Server-side application functions. The Gateway binds app/version/user
+  // identity from the App Session; the browser supplies only the function
+  // path or task payload.
+  { method: 'POST', pattern: /^\/app-runtime\/request$/ },
+  { method: 'POST', pattern: /^\/app-runtime\/tasks$/ },
+  { method: 'GET', pattern: new RegExp(`^\\/app-runtime\\/tasks\\/${APP_TASK_ID_PATTERN}$`) },
+  { method: 'POST', pattern: new RegExp(`^\\/app-runtime\\/tasks\\/${APP_TASK_ID_PATTERN}\\/cancel$`) },
   { method: 'GET', pattern: /^\/storage\/items$/ },
   { method: 'PUT', pattern: /^\/storage\/items$/ },
   { method: 'DELETE', pattern: /^\/storage\/items$/ },
@@ -50,19 +54,19 @@ const APP_API_ROUTES: Array<{ method: string; pattern: RegExp }> = [
   { method: 'GET', pattern: /^\/images\/models$/ },
   { method: 'GET', pattern: /^\/media\/storage\/usage$/ },
   { method: 'GET', pattern: /^\/media\/assets$/ },
-  { method: 'POST', pattern: /^\/media\/assets$/ },
+  { method: 'POST', pattern: /^\/media\/assets\/upload-intents$/ },
   { method: 'GET', pattern: new RegExp(`^\\/media\\/assets\\/${APP_TASK_ID_PATTERN}$`) },
   { method: 'PATCH', pattern: new RegExp(`^\\/media\\/assets\\/${APP_TASK_ID_PATTERN}$`) },
   { method: 'DELETE', pattern: new RegExp(`^\\/media\\/assets\\/${APP_TASK_ID_PATTERN}$`) },
+  { method: 'POST', pattern: new RegExp(`^\\/media\\/assets\\/${APP_TASK_ID_PATTERN}\\/complete$`) },
+  { method: 'DELETE', pattern: new RegExp(`^\\/media\\/assets\\/${APP_TASK_ID_PATTERN}\\/upload-intent$`) },
   { method: 'GET', pattern: /^\/videos\/models$/ },
   { method: 'GET', pattern: /^\/music\/models$/ },
   { method: 'GET', pattern: /^\/voice-design\/models$/ },
-  { method: 'GET', pattern: /^\/tts\/models$/ },
   { method: 'POST', pattern: /^\/responses$/ },
   { method: 'POST', pattern: /^\/responses\/compact$/ },
   { method: 'POST', pattern: /^\/responses\/stream$/ },
   { method: 'POST', pattern: /^\/chat\/completions$/ },
-  { method: 'POST', pattern: /^\/embeddings$/ },
   { method: 'POST', pattern: /^\/estimates$/ },
   { method: 'POST', pattern: /^\/messages$/ },
   { method: 'POST', pattern: /^\/messages\/count_tokens$/ },
@@ -73,25 +77,18 @@ const APP_API_ROUTES: Array<{ method: string; pattern: RegExp }> = [
   { method: 'POST', pattern: /^\/videos$/ },
   { method: 'GET', pattern: new RegExp(`^/videos/by-idempotency-key/${APP_TASK_ID_PATTERN}$`) },
   { method: 'GET', pattern: new RegExp(`^\\/videos\\/${APP_TASK_ID_PATTERN}$`) },
-  { method: 'GET', pattern: new RegExp(`^\\/videos\\/${APP_TASK_ID_PATTERN}\\/content$`) },
   { method: 'DELETE', pattern: new RegExp(`^\\/videos\\/${APP_TASK_ID_PATTERN}$`) },
   { method: 'POST', pattern: /^\/music\/generations$/ },
   { method: 'GET', pattern: new RegExp(`^/music/by-idempotency-key/${APP_TASK_ID_PATTERN}$`) },
   { method: 'GET', pattern: new RegExp(`^\\/music\\/tasks\\/${APP_TASK_ID_PATTERN}$`) },
-  { method: 'GET', pattern: new RegExp(`^\\/music\\/tasks\\/${APP_TASK_ID_PATTERN}\\/content$`) },
   { method: 'DELETE', pattern: new RegExp(`^\\/music\\/tasks\\/${APP_TASK_ID_PATTERN}$`) },
   { method: 'POST', pattern: /^\/voice-design\/generations$/ },
   { method: 'GET', pattern: new RegExp(`^\\/voice-design\\/by-idempotency-key\\/${APP_TASK_ID_PATTERN}$`) },
   { method: 'GET', pattern: new RegExp(`^\\/voice-design\\/tasks\\/${APP_TASK_ID_PATTERN}$`) },
-  { method: 'GET', pattern: new RegExp(`^\\/voice-design\\/tasks\\/${APP_TASK_ID_PATTERN}\\/content$`) },
   { method: 'DELETE', pattern: new RegExp(`^\\/voice-design\\/tasks\\/${APP_TASK_ID_PATTERN}$`) },
-  { method: 'POST', pattern: /^\/tts\/generations$/ },
-  { method: 'GET', pattern: new RegExp(`^\\/tts\\/by-idempotency-key\\/${APP_TASK_ID_PATTERN}$`) },
-  { method: 'GET', pattern: new RegExp(`^\\/tts\\/tasks\\/${APP_TASK_ID_PATTERN}$`) },
-  { method: 'GET', pattern: new RegExp(`^\\/tts\\/tasks\\/${APP_TASK_ID_PATTERN}\\/content$`) },
-  { method: 'DELETE', pattern: new RegExp(`^\\/tts\\/tasks\\/${APP_TASK_ID_PATTERN}$`) },
 ]
 const APP_STREAM_ROUTES = [
+  { method: 'POST', pattern: /^\/app-runtime\/request$/ },
   { method: 'POST', pattern: /^\/responses\/stream$/ },
   { method: 'POST', pattern: /^\/chat\/completions$/ },
   { method: 'POST', pattern: /^\/messages$/ },
@@ -124,21 +121,12 @@ const STORAGE_METHODS = new Set([
   'storage.workspace.set',
   'storage.workspace.delete',
 ])
-// These methods are local host services and never map to an HTTP runtime
-// route. Keep this list explicit: a session must not turn an Admin Runtime
-  // method (for example `user.profile.read`) into an allowed Gateway route
-// call merely by echoing it in `host_capabilities`.
+// These methods are local host services and never map to an HTTP route. Keep
+// this list explicit so a session cannot grant a Gateway route by echoing it
+// in `host_capabilities`.
 const GATEWAY_ONLY_HOST_METHODS = new Set(['media.image.readCached'])
-const SERVER_HTTP_METHODS = new Set([
-  'user.profile.read',
-  'platform.capabilities.list',
-  'theme.read',
-  'locale.read',
-])
-// The profile method uses the authenticated Gateway profile route in production
-// and the equivalent local relay bridge during local development.
+const DIRECT_HTTP_METHODS = new Set(['user.profile.read'])
 const LOCAL_HTTP_METHODS = new Set(['user.profile.read'])
-
 function isStorageMethod(method: string) {
   return STORAGE_METHODS.has(method)
 }
@@ -181,7 +169,7 @@ function gatewayBaseIsAllowed(value: string, allowRelative = false) {
     if (rawPathname !== parsed.pathname) return false
     const loopback = isLoopbackHostname(parsed.hostname)
     if (isControlPlaneHostname(parsed.hostname)) return false
-    // Plain HTTP is reserved for the local development relay. A production
+    // Plain HTTP is reserved for a loopback Gateway in local development. A production
     // Gateway URL must be HTTPS even when its path is otherwise canonical.
     if (absolute && parsed.protocol === 'http:' && !loopback) return false
 
@@ -193,24 +181,23 @@ function gatewayBaseIsAllowed(value: string, allowRelative = false) {
 }
 
 /**
- * Read the user-bound Gateway session handed off by the Portal launcher.
+ * Read the user-bound Gateway App Session previously returned by Portal login.
  *
- * The handoff is scoped to this browser tab and is deliberately different
- * from the Portal login token.  Applications use it only to call the public
- * Gateway data plane; a missing or malformed handoff is a closed state and
- * never triggers a request to the Admin runtime.
+ * This value stays scoped to the current browser tab and is deliberately
+ * different from the Portal login token. Applications use it only to call
+ * the public Gateway data plane; a missing or malformed session fails closed
+ * and never triggers a request to the Admin runtime.
  */
-export function readAppSessionFromStorage(appId: string): AppSession | undefined {
+export function readAppSessionFromStorage(appId: string, allowRelativeGateway = false): AppSession | undefined {
   if (typeof appId !== 'string' || !appId.trim() || typeof sessionStorage === 'undefined') return undefined
   const storageKey = (identity: string) => `${GATEWAY_SESSION_STORAGE_PREFIX}${encodeURIComponent(identity)}`
-  const matchesApp = (value: AppSession) => value.app_id === appId || value.app_slug === appId || value.app_aliases?.includes(appId) === true
   const isSession = (value: unknown): value is AppSession => {
     if (!isRecord(value)) return false
     const record = value as Partial<AppSession>
     return typeof record.access_token === 'string'
       && record.access_token.startsWith('ast_')
       && typeof record.gateway_url === 'string'
-      && gatewayBaseIsAllowed(record.gateway_url)
+      && gatewayBaseIsAllowed(record.gateway_url, allowRelativeGateway)
       && typeof record.app_id === 'string'
       && record.app_id.trim().length > 0
       && typeof record.app_slug === 'string'
@@ -223,6 +210,7 @@ export function readAppSessionFromStorage(appId: string): AppSession | undefined
       && Array.isArray(record.scopes)
       && record.scopes.every((scope) => typeof scope === 'string')
       && (record.app_aliases === undefined || (Array.isArray(record.app_aliases) && record.app_aliases.every((alias) => typeof alias === 'string')))
+      && (record.app_id === appId || record.app_slug === appId || record.app_aliases?.includes(appId) === true)
   }
   try {
     const candidates = new Set<string>([storageKey(appId)])
@@ -235,26 +223,12 @@ export function readAppSessionFromStorage(appId: string): AppSession | undefined
       if (!raw) continue
       let value: unknown
       try { value = JSON.parse(raw) } catch { continue }
-      if (isSession(value) && matchesApp(value)) return value
+      if (isSession(value)) return value
     }
   } catch {
-    // Disabled or partitioned storage is equivalent to a missing handoff.
+    // Disabled or partitioned storage is equivalent to a missing App Session.
   }
   return undefined
-}
-
-// Server-runtime pages are served by the Portal and authenticate through an
-// HttpOnly, same-origin cookie. Keep the API prefix path-only so a manifest or
-// application cannot redirect credentialed requests to another origin.
-function serverRuntimeBaseIsAllowed(value: string) {
-  if (typeof value !== 'string' || value.length === 0 || value !== value.trim() || /[\\?#]/.test(value)) return false
-  if (!value.startsWith('/') || value.startsWith('//')) return false
-  try {
-    const parsed = new URL(value, 'https://proxy-app.invalid')
-    return parsed.origin === 'https://proxy-app.invalid' && parsed.pathname === '/api/app-runtime/v1' && parsed.pathname === value
-  } catch {
-    return false
-  }
 }
 
 function appRequestPath(rawPath: string) {
@@ -319,6 +293,201 @@ function generateRequestId() {
 function createSdkError(code: string, message: string, requestId?: string, status?: number, details?: unknown) {
   const error = new AppSdkError(code, sanitizeApiErrorMessage(message), requestId, status, details)
   return error
+}
+
+function isStoredSessionExpired(session: AppSession) {
+  try {
+    const payload = session.access_token.replace(/^ast_/, '').split('.')[1]
+    if (!payload) return false
+    const encoded = payload.replace(/-/g, '+').replace(/_/g, '/')
+    const claims = JSON.parse(atob(encoded + '='.repeat((4 - encoded.length % 4) % 4)))
+    return typeof claims.exp === 'number' && claims.exp * 1000 <= Date.now()
+  } catch {
+    return false
+  }
+}
+
+function storedSessionExpiresAt(session: AppSession) {
+  try {
+    const payload = session.access_token.replace(/^ast_/, '').split('.')[1]
+    if (payload) {
+      const encoded = payload.replace(/-/g, '+').replace(/_/g, '/')
+      const claims = JSON.parse(atob(encoded + '='.repeat((4 - encoded.length % 4) % 4)))
+      if (typeof claims.exp === 'number') return claims.exp * 1000
+    }
+  } catch { /* Fall back to the server's relative lifetime. */ }
+  return Date.now() + session.expires_in * 1000
+}
+
+async function loadLocalDevelopmentAppSession(appId: string, appVersion: string): Promise<AppSession> {
+  const session = readAppSessionFromStorage(appId, true)
+  if (!session || session.app_version !== appVersion || isStoredSessionExpired(session)) throw createSdkError('APP_LOGIN_REQUIRED', '请先登录平台账户', undefined, 401)
+  return { ...session, gateway_url: '/v1' }
+}
+
+function isAppSessionFor(value: unknown, appId: string): value is AppSession {
+  if (!isRecord(value) || typeof value.access_token !== 'string' || !value.access_token.startsWith('ast_')
+    || typeof value.gateway_url !== 'string' || typeof value.expires_in !== 'number' || value.expires_in <= 0
+    || typeof value.app_id !== 'string' || typeof value.app_slug !== 'string') return false
+  return value.app_id === appId || value.app_slug === appId
+    || (Array.isArray(value.app_aliases) && value.app_aliases.includes(appId))
+}
+
+async function openLocalDevelopmentLogin(appId: string, appVersion: string, portalURL: string, forceLogin = false): Promise<AppSession> {
+  if (typeof window === 'undefined' || typeof window.open !== 'function') {
+    throw createSdkError('APP_LOGIN_UNAVAILABLE', '本地登录需要在浏览器中打开。')
+  }
+  let portal: URL
+  try {
+    portal = new URL(portalURL)
+  } catch {
+    throw createSdkError('APP_LOGIN_UNAVAILABLE', '本地 Portal 地址无效，请检查开发环境配置。')
+  }
+  if (!['http:', 'https:'].includes(portal.protocol) || portal.username || portal.password || portal.search || portal.hash
+    || (portal.pathname !== '/' && portal.pathname !== '')) {
+    throw createSdkError('APP_LOGIN_UNAVAILABLE', '本地 Portal 地址无效，请检查开发环境配置。')
+  }
+  const appOrigin = window.location.origin
+  if (!['http:', 'https:'].includes(window.location.protocol) || !appOrigin) {
+    throw createSdkError('APP_LOGIN_UNAVAILABLE', '本地登录需要通过 HTTP 浏览器页面打开。')
+  }
+  const authState = generateRequestId()
+  // Open synchronously during the user's click. Fetching the Portal URL first
+  // would lose transient browser activation and cause popup blockers to reject it.
+  const popup = window.open('about:blank', 'proxy-app-login', 'popup,width=520,height=720')
+  if (!popup) throw createSdkError('APP_LOGIN_POPUP_BLOCKED', '浏览器阻止了登录窗口，请允许弹窗后重试。')
+
+  const requestId = generateRequestId()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let closeTimer: ReturnType<typeof setInterval> | undefined
+  let onMessage: ((event: MessageEvent) => void) | undefined
+  try {
+    const grantResponse = await fetch('/__proxy-app/auth/grant', { credentials: 'same-origin', cache: 'no-store' })
+    const grantPayload = await grantResponse.json().catch(() => null)
+    const grantData = isRecord(grantPayload) && isRecord(grantPayload.data) ? grantPayload.data : null
+    const developmentGrant = typeof grantData?.development_grant === 'string' ? grantData.development_grant : ''
+    if (!grantResponse.ok || developmentGrant.length < 32) {
+      const code = isRecord(grantPayload) && typeof grantPayload.code === 'string' ? grantPayload.code : 'APP_DEVELOPMENT_GRANT_INVALID'
+      const message = isRecord(grantPayload) && typeof grantPayload.message === 'string' ? grantPayload.message : '本地预览授权已失效，请重新运行 proxy-app dev。'
+      throw createSdkError(code, message, requestId, grantResponse.status || 403, grantPayload)
+    }
+    const login = new URL(portal.origin)
+    login.hash = '/login?' + new URLSearchParams({
+      proxy_app_browser: '1',
+      proxy_app_state: authState,
+      proxy_app_origin: appOrigin,
+      proxy_app_id: appId,
+      proxy_app_version: appVersion,
+      proxy_app_development_grant: developmentGrant,
+      ...(forceLogin ? { proxy_app_force_login: '1' } : {}),
+    }).toString()
+    const completed = new Promise<AppSession>((resolve, reject) => {
+      onMessage = (event: MessageEvent) => {
+        if (event.source !== popup || event.origin !== portal.origin || !isRecord(event.data)
+          || event.data.protocol !== 'proxy-app/auth/v1' || event.data.state !== authState) return
+        if (event.data.type === 'login-complete') {
+          const value = event.data.app_session
+          if (!isAppSessionFor(value, appId) || value.app_version !== appVersion) {
+            reject(createSdkError('APP_SESSION_INVALID', '平台未返回有效的应用会话。', requestId, 502))
+            return
+          }
+          resolve({ ...value, gateway_url: '/v1' } as AppSession)
+        }
+        else if (event.data.type === 'login-failed') {
+          const failure = isRecord(event.data.error) ? event.data.error : {}
+          const code = typeof failure.code === 'string' ? failure.code : 'APP_LOGIN_FAILED'
+          const message = typeof failure.message === 'string' ? failure.message : '平台登录失败，请重试。'
+          const failureRequestId = typeof failure.requestId === 'string' ? failure.requestId : requestId
+          reject(createSdkError(code, message, failureRequestId, typeof failure.status === 'number' ? failure.status : 401, failure))
+        }
+      }
+      window.addEventListener('message', onMessage)
+      timer = setTimeout(() => reject(createSdkError('APP_LOGIN_TIMEOUT', '登录超时，请重新登录。', requestId, 408)), 10 * 60 * 1000)
+      closeTimer = setInterval(() => {
+        if (popup.closed) reject(createSdkError('APP_LOGIN_CANCELLED', '登录已取消，可以再次登录。', requestId, 401))
+      }, 500)
+    })
+    popup.location.replace(login.href)
+    return await completed
+  } finally {
+    if (timer) clearTimeout(timer)
+    if (closeTimer) clearInterval(closeTimer)
+    if (onMessage) window.removeEventListener('message', onMessage)
+    if (!popup.closed) popup.close()
+  }
+}
+
+/**
+ * Published app login stays on the Portal origin. The Portal owns the HttpOnly
+ * device cookie, exchanges it for an exact-version app session, and returns
+ * only that app session to this tab through a state-checked postMessage.
+ */
+async function openPublishedAppLogin(appId: string, appVersion: string, portalURL: string, forceLogin = false): Promise<AppSession> {
+  if (typeof window === 'undefined' || typeof window.open !== 'function') {
+    throw createSdkError('APP_LOGIN_UNAVAILABLE', '登录需要在浏览器中打开。')
+  }
+  if (!appVersion?.trim()) throw createSdkError('APP_LOGIN_UNAVAILABLE', '应用版本信息不可用，请刷新页面后重试。')
+  let portal: URL
+  try { portal = new URL(portalURL) } catch {
+    throw createSdkError('APP_LOGIN_UNAVAILABLE', 'Portal 地址无效，请检查应用配置。')
+  }
+  if (!['https:', 'http:'].includes(portal.protocol) || portal.username || portal.password || portal.search || portal.hash
+    || (portal.pathname !== '/' && portal.pathname !== '') || portal.origin !== window.location.origin) {
+    throw createSdkError('APP_LOGIN_UNAVAILABLE', '已发布应用必须通过 Portal 同源页面登录。')
+  }
+
+  const authState = generateRequestId()
+  const login = new URL(portal.origin)
+  login.hash = '/login?' + new URLSearchParams({
+    proxy_app_browser: '1',
+    proxy_app_origin: window.location.origin,
+    proxy_app_id: appId,
+    proxy_app_version: appVersion,
+    proxy_app_state: authState,
+    ...(forceLogin ? { proxy_app_force_login: '1' } : {}),
+  }).toString()
+  // Open synchronously in the user gesture so popup blockers do not reject it.
+  const popup = window.open('about:blank', 'proxy-app-login', 'popup,width=520,height=720')
+  if (!popup) throw createSdkError('APP_LOGIN_POPUP_BLOCKED', '浏览器阻止了登录窗口，请允许弹窗后重试。')
+
+  const requestId = generateRequestId()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let closeTimer: ReturnType<typeof setInterval> | undefined
+  let onMessage: ((event: MessageEvent) => void) | undefined
+  try {
+    const completed = new Promise<AppSession>((resolve, reject) => {
+      onMessage = (event: MessageEvent) => {
+        if (event.source !== popup || event.origin !== portal.origin || !isRecord(event.data)
+          || event.data.protocol !== 'proxy-app/auth/v1' || event.data.state !== authState) return
+        if (event.data.type === 'login-complete') {
+          const value = event.data.app_session
+          if (!isAppSessionFor(value, appId) || value.app_version !== appVersion) {
+            reject(createSdkError('APP_SESSION_INVALID', '平台未返回当前版本对应的应用会话。', requestId, 502))
+            return
+          }
+          resolve(value as AppSession)
+        } else if (event.data.type === 'login-failed') {
+          const failure = isRecord(event.data.error) ? event.data.error : {}
+          const code = typeof failure.code === 'string' ? failure.code : 'APP_LOGIN_FAILED'
+          const message = typeof failure.message === 'string' ? failure.message : '平台登录失败，请重试。'
+          const failureRequestId = typeof failure.requestId === 'string' ? failure.requestId : requestId
+          reject(createSdkError(code, message, failureRequestId, typeof failure.status === 'number' ? failure.status : 401, failure))
+        }
+      }
+      window.addEventListener('message', onMessage)
+      timer = setTimeout(() => reject(createSdkError('APP_LOGIN_TIMEOUT', '登录超时，请重新登录。', requestId, 408)), 10 * 60 * 1000)
+      closeTimer = setInterval(() => {
+        if (popup.closed) reject(createSdkError('APP_LOGIN_CANCELLED', '登录已取消，可以再次登录。', requestId, 401))
+      }, 500)
+    })
+    popup.location.replace(login.href)
+    return await completed
+  } finally {
+    if (timer) clearTimeout(timer)
+    if (closeTimer) clearInterval(closeTimer)
+    if (onMessage) window.removeEventListener('message', onMessage)
+    if (!popup.closed) popup.close()
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, any> {
@@ -529,20 +698,6 @@ function assertLocalRuntimeResponse(response: Response, requestId: string) {
   }
 }
 
-function invalidLocalAuthResponse(response?: Response, requestId?: string) {
-  return createSdkError('LOCAL_DEV_RUNTIME_NOT_CONFIGURED', '本地登录接口返回了无效响应，请使用 proxy-app dev 启动应用并检查开发代理配置。', requestId, response?.status)
-}
-
-async function readLocalAuthResponse(response: Response): Promise<LocalLoginDetails> {
-  const requestId = responseRequestId(response, generateRequestId())!
-  assertLocalRuntimeResponse(response, requestId)
-  const body = await readErrorBody(response)
-  if (!response.ok) throw createApiError(response, body, requestId)
-  const value = isRecord(body) && Object.prototype.hasOwnProperty.call(body, 'data') ? body.data : body
-  if (!isRecord(value)) throw invalidLocalAuthResponse(response, requestId)
-  return value as LocalLoginDetails
-}
-
 async function decodeResponse(response: Response, responseType: AppApiResponseType = 'auto'): Promise<unknown> {
   if (responseType === 'response') return response
   if (responseType === 'blob') return response.blob()
@@ -584,114 +739,32 @@ export function createAppClient(appId: string, options: AppClientOptions = {}) {
   }
   const localHost = typeof window !== 'undefined' && ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname)
   const detectedElectronHost = options.electronHost || (typeof window !== 'undefined' ? (window as Window & { proxyApp?: import('./types.js').ElectronHostBridge }).proxyApp : undefined)
-  // Published applications use the Portal handoff and call the Gateway
-  // directly. Electron and local development remain explicit host runtimes.
-  // Keep `server` only as an explicit legacy option; it is never inferred.
-  const runtime = options.runtime || (detectedElectronHost ? 'electron' : (options.localDevelopment || localHost ? 'local' : 'direct'))
-  if (!['direct', 'server', 'local', 'electron'].includes(runtime)) {
+  // Published applications get an App Session through the Portal browser
+  // login flow and call the Gateway directly. Old `server` clients use it too.
+  const configuredRuntime = options.runtime || (detectedElectronHost ? 'electron' : (options.localDevelopment || localHost ? 'local' : 'direct'))
+  const runtime = configuredRuntime === 'server' ? 'direct' : configuredRuntime
+  if (!['direct', 'local', 'electron'].includes(runtime)) {
     throw new AppSdkError('APP_RUNTIME_UNSUPPORTED', `Unsupported app runtime: ${runtime}`)
   }
   const localDevelopment = runtime === 'local'
   const directRuntime = runtime === 'direct'
-  const serverRuntime = runtime === 'server'
   const electronRuntime = runtime === 'electron'
-  const serverRuntimePath = options.serverRuntimePath || '/api/app-runtime/v1'
-  if (serverRuntime && !serverRuntimeBaseIsAllowed(serverRuntimePath)) {
-    throw new AppSdkError('APP_RUNTIME_PATH_INVALID', 'server runtime path must be a same-origin path')
-  }
-  let serverGatewayPath = `${serverRuntimePath.replace(/\/$/, '')}/gateway`
+  const refreshAppSession = options.refreshAppSession
   const localGatewayPath = options.localGatewayPath || '/v1'
-  // Authentication is a local relay concern. Application data always uses
-  // the Gateway URL carried by the App Session.
-  const localAuthBasePath = '/__platform/auth'
-  const localProfilePath = `${localAuthBasePath}/profile`
-  const localAuthPath = options.localAuthPath || `${localAuthBasePath}/start`
-  const localAuthStatusPath = options.localAuthStatusPath || localAuthPath.replace(/\/start\/?$/, '/status')
-  const localLogoutPath = options.localLogoutPath || `${localAuthBasePath}/logout`
   const timeoutMs = options.timeoutMs ?? 10000
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new AppSdkError('APP_INVALID_TIMEOUT', 'timeoutMs must be a positive number')
   let session: AppSession | null = null
   let bearerSessionExpiresAt = 0
   let refreshPromise: Promise<AppSession> | null = null
-  let serverRetryTimer: number | undefined
-  let serverAppID = appId
-  let serverAccountScope: string | undefined
-  let serverUserID: string | undefined
-  let serverSessionExpiresAt = 0
-  let serverSessionCheckedAt = 0
-  let serverRefreshFailures = 0
-  let serverSessionError: AppSdkError | null = null
-  let serverAbortController = new AbortController()
+  let localSessionLoadPromise: Promise<AppSession> | null = null
+  // `auth.status()` may explicitly probe Gateway. Ordinary startup consumes
+  // the Portal-issued session metadata and lets the first real API request
+  // perform authoritative Gateway validation.
+  let gatewaySessionValidationToken = ''
+  let gatewaySessionValidationPromise: Promise<AppSession> | null = null
   let accountScopeRecovery: { session: AppSession; token: string; promise: Promise<void> } | null = null
-  let localLoginPromise: Promise<void> | null = null
-  let pendingLocalLogin: LocalLoginDetails | null = null
-  let cancelLocalLogin: ((error: unknown) => void) | null = null
-  let localAuthGeneration = 0
   let destroyed = false
   let gatewaySessionError: AppSdkError | null = null
-
-  const assertServerSessionActive = () => {
-    if (!serverRuntime) return
-    if (serverSessionError) throw serverSessionError
-    if (destroyed) throw createSdkError('APP_AUTH_CHANGED', '应用已关闭，请重新打开应用。')
-    const portal = serverUserID ? portalIdentity() : null
-    if (portal && portal.user_id !== serverUserID) {
-      throw endServerSession(createSdkError('APP_ACCOUNT_CHANGED', '平台账户已退出或切换，请重新打开应用。', undefined, 409))
-    }
-  }
-  const endServerSession = (error: AppSdkError) => {
-    if (serverSessionError) return serverSessionError
-    serverSessionError = error
-    localAuthGeneration += 1
-    if (serverRetryTimer !== undefined) window.clearTimeout(serverRetryTimer)
-    serverRetryTimer = undefined
-    serverAbortController.abort(error)
-    if (typeof window.dispatchEvent === 'function' && typeof CustomEvent !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('proxy-app:session-ended', {
-        detail: { appId, accountScope: serverAccountScope, code: error.code, message: error.message },
-      }))
-    }
-    return error
-  }
-  const serverFailure = (error: AppSdkError) => {
-    if (serverRuntime && (
-      error.status === 401
-      || ['APP_ACCOUNT_CHANGED', 'APP_AUTH_CHANGED', 'APP_VERSION_CHANGED', 'APP_SESSION_INVALID', 'APP_SESSION_EXPIRED', 'APP_SESSION_REVOKED', 'APP_DISABLED'].includes(error.code)
-      || error.authReason === 'APP_SESSION_REVOKED'
-    )) return endServerSession(error)
-    return error
-  }
-  const serverHeaders = () => {
-    const headers = new Headers({ 'X-App-ID': serverAppID })
-    if (serverAccountScope) headers.set('X-App-Account-Scope', serverAccountScope)
-    return headers
-  }
-  const portalIdentity = () => {
-    try {
-      const raw = window.localStorage?.getItem(PORTAL_AUTH_CHANGE_KEY)
-      const value = raw ? JSON.parse(raw) as unknown : null
-      return isRecord(value) && (value.user_id === null || typeof value.user_id === 'string')
-        && typeof value.at === 'number' && Number.isFinite(value.at) && typeof value.nonce === 'string' ? value : null
-    } catch { return null }
-  }
-  const fetchWithServerSession = async (path: string, init: RequestInit): Promise<Response> => {
-    assertServerSessionActive()
-    // Combine caller cancellation with account/logout cancellation. Newer
-    // browsers supply AbortSignal.any; the fallback retains caller cancellation
-    // and still rejects all late results through the checks below.
-    const signalAny = (AbortSignal as typeof AbortSignal & { any?: (signals: AbortSignal[]) => AbortSignal }).any
-    const signal = init.signal
-      ? signalAny ? signalAny.call(AbortSignal, [init.signal, serverAbortController.signal]) : init.signal
-      : serverAbortController.signal
-    try {
-      const response = await fetch(path, { ...init, signal })
-      assertServerSessionActive()
-      return response
-    } catch (error) {
-      assertServerSessionActive()
-      throw error
-    }
-  }
 
   const unsupportedAppMethodError = (method: string) => createSdkError(
     'APP_RUNTIME_METHOD_NOT_SUPPORTED',
@@ -709,7 +782,10 @@ export function createAppClient(appId: string, options: AppClientOptions = {}) {
     )
 
   const assertAppMethod = (method: string, allowHostCapability = false) => {
-    if (isStorageMethod(method) || ((localDevelopment || directRuntime) && LOCAL_HTTP_METHODS.has(method)) || (serverRuntime && SERVER_HTTP_METHODS.has(method)) || (allowHostCapability && hasHostCapability(method))) return
+    if (isStorageMethod(method)
+      || (localDevelopment && LOCAL_HTTP_METHODS.has(method))
+      || (directRuntime && DIRECT_HTTP_METHODS.has(method))
+      || (allowHostCapability && hasHostCapability(method))) return
     throw unsupportedAppMethodError(method)
   }
 
@@ -723,13 +799,18 @@ export function createAppClient(appId: string, options: AppClientOptions = {}) {
     return base.replace(/\/$/, '')
   }
 
-  const runtimeBase = () => serverRuntime ? serverRuntimePath.replace(/\/$/, '') : gatewayBase()
-  const gatewayRequestBase = () => serverRuntime ? serverGatewayPath : gatewayBase()
-
   const acceptSession = (next: AppSession) => {
-    if (serverRuntime || gatewayBaseIsAllowed(next.gateway_url)) {
+    if (gatewayBaseIsAllowed(next.gateway_url, localDevelopment)) {
       gatewaySessionError = null
-      if (!serverRuntime) bearerSessionExpiresAt = Date.now() + next.expires_in * 1000
+      bearerSessionExpiresAt = storedSessionExpiresAt(next)
+      if (localDevelopment || directRuntime) {
+        try {
+          sessionStorage.setItem(`${GATEWAY_SESSION_STORAGE_PREFIX}${encodeURIComponent(appId)}`, JSON.stringify(next))
+        } catch {
+          // A blocked sessionStorage should not prevent the current tab from
+          // using a session returned by the authenticated Portal.
+        }
+      }
       return true
     }
     gatewaySessionError = createSdkError('APP_GATEWAY_URL_INVALID', 'App session must use a canonical Gateway /v1 URL')
@@ -738,19 +819,33 @@ export function createAppClient(appId: string, options: AppClientOptions = {}) {
   }
 
   if (localDevelopment) {
-    session = {
-      access_token: '',
-      token_type: 'Bearer',
-      expires_in: APP_SESSION_DEFAULT_TTL_SECONDS,
-      gateway_url: localGatewayPath.replace(/\/$/, ''),
-      app_id: appId,
-      app_slug: appId,
-      app_version: options.localAppVersion || 'local',
-      scopes: [],
+  // Local development receives the same Gateway App Session as production.
+  // A session is scoped to this browser tab and came from the Portal's
+  // same-origin device-cookie exchange.
+    const storedSession = readAppSessionFromStorage(appId, true)
+    const suppliedSession = options.appSession || (storedSession && (!options.localAppVersion || storedSession.app_version === options.localAppVersion) ? storedSession : undefined)
+    if (suppliedSession) {
+      if (!suppliedSession.access_token?.startsWith('ast_') || !suppliedSession.gateway_url) {
+        throw new AppSdkError('APP_SESSION_INVALID', 'local runtime received an invalid Gateway App Session')
+      }
+      session = suppliedSession
+    } else {
+      // Keep a non-authenticated client constructible so the UI can render a
+      // reconnect state. No request can be made until a Gateway session exists.
+      session = {
+        access_token: '',
+        token_type: 'Bearer',
+        expires_in: APP_SESSION_DEFAULT_TTL_SECONDS,
+        gateway_url: localGatewayPath.replace(/\/$/, ''),
+        app_id: appId,
+        app_slug: appId,
+        app_version: options.localAppVersion || 'local',
+        scopes: [],
+      }
     }
   } else if (directRuntime) {
     // A published first-party page may be constructed before the Portal
-    // session handoff is available (for example after a direct refresh or
+    // App Session is available (for example after a direct refresh or
     // when browser sessionStorage is blocked). Keep the client alive so the
     // platform gate can show a reconnect state; never fall back to the Admin
     // runtime just to recover a missing Gateway credential.
@@ -761,10 +856,6 @@ export function createAppClient(appId: string, options: AppClientOptions = {}) {
       }
       session = suppliedSession
     }
-  } else if (serverRuntime) {
-    // The Portal owns the App Session. The SDK discovers only non-secret
-    // metadata from the same-origin session endpoint; the credential remains
-    // in an HttpOnly cookie and is never exposed to application JavaScript.
   } else if (electronRuntime) {
     if (!detectedElectronHost) throw new AppSdkError('APP_ELECTRON_HOST_UNAVAILABLE', 'Electron host bridge is not available')
   }
@@ -772,303 +863,92 @@ export function createAppClient(appId: string, options: AppClientOptions = {}) {
   if (localDevelopment && !gatewayBaseIsAllowed(localGatewayPath, true)) {
     throw createSdkError('APP_GATEWAY_URL_INVALID', 'Local app runtime must use a canonical Gateway URL')
   }
-  // A direct runtime can be constructed before the Portal handoff is
+  // A direct runtime can be constructed before a Portal App Session is
   // available (for example after a hard refresh with blocked sessionStorage).
   // Keep the client alive so the host can render its reconnect state; do not
   // dereference a missing session or fall back to the Admin runtime.
   if (directRuntime && session && !gatewayBaseIsAllowed(session.gateway_url)) {
     throw createSdkError('APP_GATEWAY_URL_INVALID', 'App session must use a canonical Gateway /v1 URL')
   }
-  if (directRuntime && session) acceptSession(session)
+  if ((directRuntime || localDevelopment) && session?.access_token) acceptSession(session)
 
   const cleanup = () => {
-    if (serverRetryTimer !== undefined) {
-      window.clearTimeout(serverRetryTimer)
-      serverRetryTimer = undefined
-    }
-    localAuthGeneration += 1
-    if (serverRuntime) {
-      serverAbortController.abort()
-      window.removeEventListener('storage', handlePortalAuthChange)
-      window.removeEventListener('focus', recoverVisibleServerSession)
-      window.removeEventListener('online', recoverVisibleServerSession)
-      window.removeEventListener('pageshow', recoverVisibleServerSession)
-      window.removeEventListener('pagehide', handleServerPageHide)
-      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', recoverVisibleServerSession)
-    }
-    pendingLocalLogin = null
-    cancelLocalLogin?.(createSdkError('APP_LOGIN_CANCELLED', '登录已取消'))
     gatewaySessionError = null
-  }
-
-  const ensureLocalLogin = async (details?: LocalLoginDetails, userInitiated = false, forcePortalLogin = false) => {
-    if (destroyed) throw createSdkError('APP_LOGIN_CANCELLED', '应用已关闭，登录已取消')
-    if (localLoginPromise) return localLoginPromise
-    localAuthGeneration += 1
-    localLoginPromise = (async () => {
-      const generation = localAuthGeneration
-      const controller = new AbortController()
-      let cancellation: unknown
-      let cancelAttempt: (error: unknown) => void = () => undefined
-      let popup: Window | null = userInitiated ? window.open('about:blank', 'proxy-app-login', 'popup,width=480,height=720') : null
-      const cancelLogin = (error: unknown) => {
-        cancellation = error
-        controller.abort()
-        cancelAttempt(error)
-        try { popup?.close() } catch {}
-      }
-      cancelLocalLogin = cancelLogin
-      const assertActive = () => {
-        if (cancellation) throw cancellation
-        if (destroyed || generation !== localAuthGeneration) throw createSdkError('APP_LOGIN_CANCELLED', '登录已取消')
-      }
-      const runAttempt = async (suppliedDetails?: LocalLoginDetails) => {
-        assertActive()
-        let loginDetails = suppliedDetails?.login_url ? suppliedDetails : (!userInitiated && !forcePortalLogin ? pendingLocalLogin : null)
-        if (!loginDetails?.login_url) {
-          const startPath = forcePortalLogin ? `${localAuthPath}${localAuthPath.includes('?') ? '&' : '?'}force_login=1` : localAuthPath
-          const start = await fetch(startPath, { headers: { Accept: 'application/json' }, cache: 'no-store', signal: controller.signal })
-          assertActive()
-          loginDetails = await readLocalAuthResponse(start)
-          assertActive()
-        }
-        if (!forcePortalLogin && loginDetails?.authenticated === true) {
-          pendingLocalLogin = null
-          return
-        }
-        if (typeof loginDetails?.login_url !== 'string' || !loginDetails.login_url || typeof loginDetails.auth_state !== 'string' || !loginDetails.auth_state) {
-          throw invalidLocalAuthResponse()
-        }
-        forcePortalLogin = forcePortalLogin || loginDetails.force_login === true
-        const loginURL = new URL(loginDetails.login_url)
-        if (forcePortalLogin) {
-          // The Portal reads HashRouter parameters inside #/login. Keep the
-          // same final URL for the popup, callbacks and manual fallback links.
-          if (loginURL.hash.startsWith('#/')) {
-            const queryStart = loginURL.hash.indexOf('?')
-            const route = queryStart < 0 ? loginURL.hash : loginURL.hash.slice(0, queryStart)
-            const query = new URLSearchParams(queryStart < 0 ? '' : loginURL.hash.slice(queryStart + 1))
-            query.set('proxy_app_force_login', '1')
-            loginURL.hash = `${route}?${query}`
-          } else loginURL.searchParams.set('proxy_app_force_login', '1')
-        }
-        loginDetails = { ...loginDetails, login_url: loginURL.toString(), force_login: forcePortalLogin }
-        pendingLocalLogin = loginDetails
-        const state = loginDetails.auth_state
-        // The callback document is served by the loopback relay, not by the
-        // Portal origin contained in login_url. Validate the postMessage
-        // against the relay origin so OAuth completion can wake the app.
-        const loginOrigin = loginDetails.relay_url ? new URL(loginDetails.relay_url).origin : loginURL.origin
-        const loginResult = new Promise<void>((resolve, reject) => {
-          let settled = false
-          let pollTimer: number | null = null
-          const clearAttempt = () => {
-            window.clearTimeout(timer)
-            if (pollTimer !== null) window.clearInterval(pollTimer)
-            window.removeEventListener('message', onMessage)
-          }
-          const finish = () => {
-            if (settled) return
-            settled = true
-            clearAttempt()
-            resolve()
-          }
-          const fail = (error: unknown) => {
-            if (settled) return
-            settled = true
-            clearAttempt()
-            reject(error)
-          }
-          cancelAttempt = fail
-          const timer = window.setTimeout(() => {
-            fail(createSdkError('APP_LOGIN_TIMEOUT', '平台登录超时，请重试', undefined, undefined, loginDetails))
-          }, 5 * 60 * 1000)
-          const onMessage = (event: MessageEvent) => {
-            if (event.origin !== loginOrigin) return
-            const message = event.data
-            if (!message || message.protocol !== 'proxy-app/auth/v1' || message.state !== state) return
-            if (message.type === 'login-complete') {
-              pendingLocalLogin = null
-              finish()
-              return
-            }
-            if (message.type === 'login-failed') {
-              const failure = message as LocalLoginFailureMessage
-              fail(createSdkError(
-                failure.error?.code || 'APP_LOGIN_FAILED',
-                failure.error?.message || '平台登录失败，请重试。',
-                failure.error?.request_id,
-                failure.error?.status,
-                { stage: failure.error?.stage || 'login', upstream_code: failure.error?.upstream_code, ...loginDetails },
-              ))
-            }
-          }
-          window.addEventListener('message', onMessage)
-          // Some browsers isolate popup opener references or discard the
-          // callback document before postMessage is delivered. The relay is
-          // authoritative, so poll its same-origin status endpoint as a
-          // recovery path. This also covers a callback completed in another
-          // tab or after the app was refreshed.
-          const pollStatus = async () => {
-            if (settled) return
-            try {
-              const statusResponse = await fetch(localAuthStatusPath, { headers: { Accept: 'application/json' }, cache: 'no-store' })
-              if (!statusResponse.ok) return
-              const status = await readLocalAuthResponse(statusResponse)
-              if (settled) return
-              if (typeof status.authenticated !== 'boolean') throw invalidLocalAuthResponse(statusResponse)
-              if (status?.authenticated === true) {
-                pendingLocalLogin = null
-                finish()
-              }
-            } catch (error) {
-              if (error instanceof AppSdkError && error.code === 'LOCAL_DEV_RUNTIME_NOT_CONFIGURED') fail(error)
-              // The callback message remains the primary fast path; a
-              // transient status request failure should not fail login.
-            }
-          }
-          pollTimer = window.setInterval(() => { void pollStatus() }, 1000)
-        })
-        try {
-          options.onLoginRequired?.(loginDetails)
-          assertActive()
-          if (popup && !popup.closed) popup.location.replace(loginURL.toString())
-          else {
-            popup = window.open(loginURL.toString(), 'proxy-app-login', 'popup,width=480,height=720')
-            if (!popup) {
-              throw createSdkError(
-                'APP_LOGIN_POPUP_BLOCKED',
-                '浏览器阻止了登录窗口，请点击“登录平台”后重试。',
-                undefined,
-                undefined,
-                loginDetails,
-              )
-            }
-          }
-          await loginResult
-        } catch (error) {
-          cancelAttempt(error)
-          await loginResult.catch(() => undefined)
-          throw error
-        } finally {
-          cancelAttempt = () => undefined
-        }
-      }
-      try {
-        try {
-          await runAttempt(details)
-          assertActive()
-        } catch (error) {
-          assertActive()
-          // A cached Portal token can look valid until the relay exchanges it.
-          // Retry once with a fresh login in the same popup; never keep
-          // auto-submitting an expired token or retry permission/network errors.
-          const staleLogin = error instanceof AppSdkError && ['APP_LOGIN_SESSION_EXPIRED', 'APP_LOGIN_TOKEN_INVALID'].includes(error.code)
-          if (forcePortalLogin || !staleLogin) throw error
-          forcePortalLogin = true
-          pendingLocalLogin = null
-          await runAttempt()
-          assertActive()
-        }
-      } finally {
-        if (cancelLocalLogin === cancelLogin) cancelLocalLogin = null
-        try { popup?.close() } catch {}
-      }
-    })().finally(() => { localLoginPromise = null })
-    return localLoginPromise
-  }
-
-  const localLoginRequired = async (response: Response, requestId: string) => {
-    if (response.status !== 401) return false
-    const body = await readErrorBody(response.clone())
-    const parsed = parseApiErrorBody(body)
-    if (parsed.code !== 'APP_LOGIN_REQUIRED') return false
-    const details = isRecord(body) ? body as LocalLoginDetails : undefined
-    await ensureLocalLogin(details, false, details?.force_login === true)
-    return true
+    gatewaySessionValidationToken = ''
+    gatewaySessionValidationPromise = null
+    localSessionLoadPromise = null
   }
 
   const login = async (loginOptions: LocalLoginOptions = {}) => {
-    if (serverRuntime) {
-      if (destroyed) throw createSdkError('APP_AUTH_CHANGED', '应用已关闭，请重新打开应用。')
-      const hash = window.location.hash || ''
-      const safeHash = hash.length <= 4096 && !/[\x00-\x1f\x7f\\]/.test(hash)
-        && !/%(?:0[0-9a-f]|1[0-9a-f]|7f|5c)/i.test(hash)
-        && (!hash || hash.startsWith('#/') && !hash.startsWith('#//')) ? hash : ''
-      const query = new URLSearchParams({ runtime_recovery: '1' })
-      if (safeHash) query.set('runtime_hash', safeHash)
-      const preview = new URLSearchParams(window.location.search || '').getAll('runtime_preview')
-      if (preview.length === 1 && preview[0].length <= 128 && /^[A-Za-z0-9][A-Za-z0-9._+-]*$/.test(preview[0])) query.set('version', preview[0])
-      // Only the server runtime owns this same-origin Portal handoff. A
-      // manifest, gateway response or caller cannot choose another login URL.
-      const target = new URL('/', window.location.origin)
-      target.hash = `/apps/${encodeURIComponent(serverAppID)}?${query}`
-      endServerSession(createSdkError('APP_AUTH_CHANGED', '正在返回平台重新连接账户。'))
-      window.location.replace(target.toString())
-      return
-    }
     if (electronRuntime) {
-      localAuthGeneration += 1
       return unwrapElectronResult<void>(await detectedElectronHost!.auth.login(loginOptions))
     }
-    if (!localDevelopment) throw createSdkError('APP_LOGIN_UNAVAILABLE', directRuntime ? '请通过平台 OAuth 获取 App Session' : '登录由平台宿主管理')
-    await ensureLocalLogin(undefined, true, loginOptions.forceLogin === true)
+    if (localDevelopment) {
+      const appVersion = options.localAppVersion || session?.app_version || 'local'
+      let nextSession: AppSession | undefined
+      if (refreshAppSession && loginOptions.forceLogin !== true) {
+        try {
+          nextSession = await refreshAppSession()
+        } catch (error) {
+          const code = error instanceof AppSdkError ? error.code : ''
+          if (code !== 'DEVICE_TOKEN_INVALID' && code !== 'APP_LOGIN_REQUIRED') throw error
+        }
+      }
+      if (!nextSession) {
+        nextSession = await openLocalDevelopmentLogin(
+          appId,
+          appVersion,
+          options.portalURL || 'https://www.duckingmind.com',
+          loginOptions.forceLogin === true,
+        )
+      } else {
+        nextSession = { ...nextSession, gateway_url: localGatewayPath.replace(/\/$/, '') }
+      }
+      if (!gatewayBaseIsAllowed(nextSession.gateway_url, true)) {
+        throw createSdkError('APP_SESSION_INVALID', '平台返回的应用会话与当前应用不匹配。')
+      }
+      acceptSession(nextSession)
+      session = nextSession
+      gatewaySessionValidationToken = ''
+      return
+    }
+    if (directRuntime) {
+      const nextSession = await openPublishedAppLogin(
+        appId,
+        options.appVersion || session?.app_version || '',
+        options.portalURL || (typeof window !== 'undefined' ? window.location.origin : ''),
+        loginOptions.forceLogin === true,
+      )
+      if (!gatewayBaseIsAllowed(nextSession.gateway_url)) {
+        throw createSdkError('APP_SESSION_INVALID', '平台返回的应用会话与当前应用不匹配。')
+      }
+      acceptSession(nextSession)
+      session = nextSession
+      gatewaySessionValidationToken = ''
+      return
+    }
+    throw createSdkError('APP_LOGIN_UNAVAILABLE', directRuntime ? '请通过平台入口获取 App Session' : '登录由平台宿主管理')
   }
 
   const logout = async () => {
-    localAuthGeneration += 1
-    if (serverRuntime) {
-      const headers = serverHeaders()
-      headers.set('Accept', 'application/json')
-      headers.set('X-App-Runtime-Logout', '1')
-      // Suspend before dispatch: queued work and late results must not resume
-      // while the cookie-backed grant is being revoked.
-      endServerSession(createSdkError('APP_AUTH_CHANGED', '账户已退出，请重新登录。'))
-      await withRuntimeCookieLock(async () => {
-        const controller = new AbortController()
-        const timer = window.setTimeout(() => controller.abort(createSdkError('APP_SESSION_LOGOUT_TIMEOUT', '退出请求超时，请返回平台确认登录状态。', undefined, 408)), timeoutMs)
-        try {
-          const response = await fetch(`${serverRuntimePath}/session/logout`, {
-            method: 'POST', headers, credentials: 'include', cache: 'no-store', redirect: 'error', signal: controller.signal,
-          })
-          const body = await readErrorBody(response)
-          controller.signal.throwIfAborted()
-          if (!response.ok) throw createApiError(response, body, generateRequestId())
-        } catch (error) {
-          if (controller.signal.aborted) throw controller.signal.reason
-          throw error
-        } finally {
-          window.clearTimeout(timer)
-        }
-      })
-      return
-    }
     if (electronRuntime) return unwrapElectronResult<void>(await detectedElectronHost!.auth.logout())
-    if (!localDevelopment) return
-    pendingLocalLogin = null
-    cancelLocalLogin?.(createSdkError('APP_LOGIN_CANCELLED', '正在退出账户，登录已取消'))
-    const response = await fetch(localLogoutPath, { method: 'POST', headers: { Accept: 'application/json' } })
-    const result = await readLocalAuthResponse(response)
-    if (!('success' in result) || result.success !== true) throw invalidLocalAuthResponse(response)
-    session = {
-      access_token: '',
-      token_type: 'Bearer',
-      expires_in: APP_SESSION_DEFAULT_TTL_SECONDS,
-      gateway_url: localGatewayPath.replace(/\/$/, ''),
-      app_id: appId,
-      app_slug: appId,
-      app_version: options.localAppVersion || 'local',
-      scopes: [],
+    if (!localDevelopment && !directRuntime) return
+    session = null
+    bearerSessionExpiresAt = 0
+    gatewaySessionValidationToken = ''
+    try {
+      sessionStorage.removeItem(`${GATEWAY_SESSION_STORAGE_PREFIX}${encodeURIComponent(appId)}`)
+    } catch {
+      // A blocked sessionStorage is already equivalent to a logged-out tab.
     }
-    pendingLocalLogin = null
+    // Portal owns the HttpOnly device cookie. App logout only clears this tab's
+    // App Session and does not log the user out of the Portal.
   }
 
   /**
-   * Check whether a local relay already has a platform login.  Unlike an API
-   * request this endpoint never starts the login flow, so apps can restore a
-   * previously linked account during startup without unexpectedly opening a
-   * popup. Direct runtime uses its supplied user-bound App Session as the
-   * authentication signal.
+   * Explicitly check a browser App Session through Gateway without starting
+   * a login flow. Normal app startup uses the signed Portal handoff directly;
+   * this method is reserved for callers that specifically need live status.
    */
   const validAccountScope = (scope: unknown): scope is string =>
     typeof scope === 'string' && /^acs_[a-f0-9]{64}$/.test(scope)
@@ -1085,7 +965,7 @@ export function createAppClient(appId: string, options: AppClientOptions = {}) {
         throw createSdkError('APP_AUTH_CHANGED', '账户授权已改变，请重新检查登录状态。')
     }
     const promise = (async () => {
-      if (directRuntime && !options.refreshAppSession) throw accountScopeUnavailable()
+      if (directRuntime && !refreshAppSession) throw accountScopeUnavailable()
       assertCurrent()
       await refreshSession()
       if (destroyed) throw createSdkError('APP_AUTH_CHANGED', '应用已关闭，请重新打开应用。')
@@ -1096,172 +976,8 @@ export function createAppClient(appId: string, options: AppClientOptions = {}) {
     try { await promise } finally { if (accountScopeRecovery === recovery) accountScopeRecovery = null }
   }
 
-  const fetchServerSession = async (rotate = false): Promise<AppSession> => {
-    assertServerSessionActive()
-    const headers = serverHeaders()
-    headers.set('Accept', 'application/json')
-    headers.set('X-Request-ID', generateRequestId())
-    const controller = new AbortController()
-    const timer = window.setTimeout(() => controller.abort(createSdkError('APP_SESSION_REFRESH_TIMEOUT', '平台会话检查超时，请稍后重试。', undefined, 408)), timeoutMs)
-    let response: Response
-    let body: unknown
-    try {
-      response = await fetchWithServerSession(`${serverRuntimePath.replace(/\/$/, '')}/session${rotate ? '/refresh' : ''}`, {
-        method: rotate ? 'POST' : 'GET', headers,
-        credentials: 'include', cache: 'no-store', redirect: 'error', signal: controller.signal,
-      })
-      body = await readErrorBody(response)
-      controller.signal.throwIfAborted()
-    } catch (error) {
-      assertServerSessionActive()
-      if (controller.signal.aborted) throw controller.signal.reason
-      throw error
-    } finally {
-      window.clearTimeout(timer)
-    }
-    assertServerSessionActive()
-    if (!response.ok) {
-      // Metadata lookup is read-only. It may recover an expired cookie once;
-      // this never replays an application operation or a missing credential.
-      if (!rotate && isGatewaySessionExpired(response, body)) return fetchServerSession(true)
-      const error = createApiError(response, body, generateRequestId())
-      throw response.status === 401 ? endServerSession(error) : serverFailure(error)
-    }
-    const value = isRecord(body) && Object.prototype.hasOwnProperty.call(body, 'data') ? body.data : body
-    const aliases = isRecord(value) && Array.isArray(value.app_aliases) ? value.app_aliases.filter(validPublicAppSlug) : []
-    if (!isRecord(value) || typeof value.app_id !== 'string' || value.app_id !== value.app_id.trim() || !SERVER_APP_ID_PATTERN.test(value.app_id)
-      || (session ? value.app_id !== serverAppID : value.app_id !== appId && (!validPublicAppSlug(appId) || value.app_slug !== appId && !aliases.includes(appId)))) {
-      throw endServerSession(createSdkError('APP_SESSION_INVALID', 'Server runtime returned an invalid app session'))
-    }
-    if (!validAccountScope(value.account_scope)) throw accountScopeUnavailable()
-    const portal = portalIdentity()
-    if ((serverAccountScope && value.account_scope !== serverAccountScope)
-      || (serverUserID && value.user_id !== serverUserID)
-      || (portal && (portal.user_id === null || portal.user_id !== value.user_id))) {
-      throw endServerSession(createSdkError('APP_ACCOUNT_CHANGED', '账户已切换，请重新打开应用。', undefined, 409))
-    }
-    const loadedVersion = session?.app_version || options.localAppVersion
-    if (loadedVersion && value.app_version !== loadedVersion) {
-      throw endServerSession(createSdkError('APP_VERSION_CHANGED', '应用版本已更新，请重新打开应用。', undefined, 409))
-    }
-    const expiresAt = typeof value.expires_at === 'string' ? Date.parse(value.expires_at) : NaN
-    const expiresIn = typeof value.expires_in === 'number' && Number.isFinite(value.expires_in)
-      ? value.expires_in
-      : Number.isFinite(expiresAt) ? Math.max(0, Math.floor((expiresAt - Date.now()) / 1000)) : APP_SESSION_DEFAULT_TTL_SECONDS
-    const origin = typeof window !== 'undefined' && /^https?:\/\//i.test(window.location.origin)
-      ? window.location.origin
-      : 'https://proxy-app.invalid'
-    if (typeof value.runtime_gateway_url === 'string') {
-      try {
-        const parsedGateway = new URL(value.runtime_gateway_url, origin)
-        const expectedPrefix = `${serverRuntimePath.replace(/\/$/, '')}/gateway`
-        if (parsedGateway.origin !== origin || parsedGateway.search || parsedGateway.hash || !parsedGateway.pathname.startsWith(`${expectedPrefix}/`) && parsedGateway.pathname !== expectedPrefix) {
-          throw new Error('invalid runtime gateway')
-        }
-        serverGatewayPath = parsedGateway.pathname.replace(/\/$/, '')
-      } catch {
-        throw createSdkError('APP_GATEWAY_URL_INVALID', 'Server runtime returned an invalid Gateway URL')
-      }
-    }
-    const runtimeGatewayURL = `${origin}${serverGatewayPath}`
-    const next: AppSession = {
-      access_token: '',
-      token_type: 'Cookie',
-      expires_in: expiresIn,
-      gateway_url: runtimeGatewayURL,
-      app_id: typeof value.app_id === 'string' ? value.app_id : appId,
-      app_slug: typeof value.app_slug === 'string' ? value.app_slug : appId,
-      app_aliases: aliases,
-      app_version: typeof value.app_version === 'string' ? value.app_version : session?.app_version || options.localAppVersion || 'server',
-      account_scope: value.account_scope,
-      scopes: Array.isArray(value.scopes)
-        ? value.scopes.filter((scope): scope is string => typeof scope === 'string')
-        : session?.scopes || [],
-    }
-    if (!acceptSession(next)) throw gatewaySessionError || createSdkError('APP_SESSION_INVALID', 'Server runtime returned an invalid app session')
-    serverAppID = value.app_id
-    serverAccountScope = value.account_scope
-    if (typeof value.user_id === 'string' && value.user_id) serverUserID = value.user_id
-    session = next
-    serverSessionCheckedAt = Date.now()
-    serverSessionExpiresAt = Number.isFinite(expiresAt) ? expiresAt : serverSessionCheckedAt + expiresIn * 1000
-    serverRefreshFailures = 0
-    if (serverRetryTimer !== undefined) window.clearTimeout(serverRetryTimer)
-    serverRetryTimer = undefined
-    return next
-  }
-
-  const scheduleServerRetry = (delay: number, rotate = false) => {
-    if (destroyed || serverSessionError) return
-    if (serverRetryTimer !== undefined) window.clearTimeout(serverRetryTimer)
-    serverRetryTimer = window.setTimeout(() => {
-      serverRetryTimer = undefined
-      void requestServerSession(rotate).catch(() => { /* retry policy is owned by the single flight below */ })
-    }, delay)
-  }
-  const requestServerSession = (rotate: boolean): Promise<AppSession> => {
-    assertServerSessionActive()
-    if (refreshPromise) return refreshPromise
-    refreshPromise = withRuntimeCookieLock(() => {
-      assertServerSessionActive()
-      return fetchServerSession(rotate)
-    }).catch(error => {
-      const transient = !(error instanceof AppSdkError) || error.status === 408 || error.status === 429 || (error.status || 0) >= 500
-      if (!serverSessionError && !destroyed && transient && serverRefreshFailures < SERVER_REFRESH_RETRY_MS.length) {
-        scheduleServerRetry(SERVER_REFRESH_RETRY_MS[serverRefreshFailures++], rotate)
-      }
-      throw error
-    }).finally(() => { refreshPromise = null })
-    return refreshPromise
-  }
-  const ensureServerSession = async () => {
-    assertServerSessionActive()
-    const expired = Boolean(session && serverSessionExpiresAt <= Date.now())
-    if (!session || expired || Date.now() - serverSessionCheckedAt >= SERVER_SESSION_CHECK_AGE_MS) {
-      await requestServerSession(expired)
-    }
-    assertServerSessionActive()
-  }
-  const recoverVisibleServerSession = (event?: Event) => {
-    if (destroyed || serverSessionError || (typeof document !== 'undefined' && document.visibilityState === 'hidden')) return
-    // Waking after a suspended timer or regaining connectivity starts a new
-    // bounded retry window, but shares any already-running request.
-    serverRefreshFailures = 0
-    const restored = event?.type === 'pageshow' && (event as PageTransitionEvent).persisted
-    const recovery = restored
-      ? Promise.resolve().then(() => requestServerSession(Boolean(session && serverSessionExpiresAt <= Date.now())))
-      : ensureServerSession()
-    void recovery.catch(() => { /* surfaced by status/API calls; transient failures have bounded retries */ })
-  }
-  const handleServerPageHide = (event: PageTransitionEvent) => {
-    if (!event.persisted) { cleanup(); return }
-    // bfcache preserves this client. Do not permanently abort its controller;
-    // pageshow revalidates identity and can rearm a transient retry.
-    if (serverRetryTimer !== undefined) window.clearTimeout(serverRetryTimer)
-    serverRetryTimer = undefined
-  }
-  const handlePortalAuthChange = (event: StorageEvent) => {
-    if (event.key !== PORTAL_AUTH_CHANGE_KEY || !event.newValue || destroyed || serverSessionError) return
-    try {
-      const latest = window.localStorage?.getItem(PORTAL_AUTH_CHANGE_KEY)
-      if (latest !== undefined && latest !== event.newValue) return
-      const value = JSON.parse(event.newValue) as unknown
-      if (!isRecord(value) || !(value.user_id === null || typeof value.user_id === 'string') || typeof value.at !== 'number' || typeof value.nonce !== 'string') return
-      // Before bootstrap resolves, compare the latest persisted identity with
-      // the returned metadata instead of assuming every login is a switch.
-      if (value.user_id === null || (serverUserID && value.user_id !== serverUserID)) {
-        endServerSession(createSdkError('APP_ACCOUNT_CHANGED', '平台账户已退出或切换，请重新打开应用。', undefined, 409))
-      }
-    } catch { /* Ignore unrelated or malformed cross-tab storage updates. */ }
-  }
-
   const authStatus = async (): Promise<AppAuthStatus> => {
-    const generation = localAuthGeneration
-    const assertActive = () => {
-      if (destroyed || generation !== localAuthGeneration)
-        throw createSdkError('APP_AUTH_CHANGED', '账户授权已改变，请重新检查登录状态。')
-    }
-    assertActive()
+    if (destroyed) throw createSdkError('APP_AUTH_CHANGED', '账户授权已改变，请重新检查登录状态。')
     if (gatewaySessionError) throw gatewaySessionError
     const scopedStatus = (authenticated: boolean, scope: unknown): AppAuthStatus => {
       if (authenticated && !validAccountScope(scope)) throw accountScopeUnavailable()
@@ -1269,33 +985,20 @@ export function createAppClient(appId: string, options: AppClientOptions = {}) {
     }
     if (electronRuntime) {
       const status = unwrapElectronResult<AppAuthStatus>(await detectedElectronHost!.auth.status())
-      assertActive()
       const { accountScope, ...rest } = status
       return { ...rest, ...scopedStatus(status.authenticated, accountScope) }
     }
-    if (serverRuntime) {
-      await ensureServerSession()
-      assertActive()
-      if (session && !validAccountScope(session.account_scope)) {
+    if (!session?.access_token && localDevelopment) {
+      try {
         await refreshSession()
-        assertActive()
+      } catch (error) {
+        if (error instanceof AppSdkError && error.code === 'APP_LOGIN_REQUIRED') return { authenticated: false }
+        throw error
       }
-      return scopedStatus(Boolean(session?.app_id), session?.account_scope)
     }
-    if (!localDevelopment) {
-      await ensureBearerSession()
-      if (session?.access_token && !validAccountScope(session.account_scope)) await recoverAccountScope(session)
-      assertActive()
-      return scopedStatus(Boolean(session?.access_token), session?.account_scope)
-    }
-    const response = await fetch(localAuthStatusPath, {
-      headers: { Accept: 'application/json' },
-      cache: 'no-store',
-    })
-    const value = await readLocalAuthResponse(response)
-    assertActive()
-    if (typeof value.authenticated !== 'boolean') throw invalidLocalAuthResponse(response)
-    return scopedStatus(value.authenticated, value.account_scope)
+    if (!session?.access_token) return { authenticated: false }
+    await validateGatewaySession(session)
+    return scopedStatus(true, session.account_scope)
   }
 
   const httpCall = async <T>(method: string, payload?: unknown): Promise<T> => {
@@ -1383,38 +1086,37 @@ export function createAppClient(appId: string, options: AppClientOptions = {}) {
       default:
         throw createSdkError('APP_RUNTIME_METHOD_NOT_SUPPORTED', `App HTTP runtime does not support ${method}`)
     }
-    if (serverRuntime) await ensureServerSession()
-    else await ensureBearerSession()
+    await ensureBearerSession()
     const requestId = generateRequestId()
     const idempotencyKey = typeof input.idempotency_key === 'string' ? input.idempotency_key : generateRequestId()
+    let sentToken = ''
     const request = () => {
+      sentToken = session?.access_token || ''
       const headers = new Headers({ Accept: 'application/json', 'X-Request-ID': requestId })
-      if (!serverRuntime && session?.access_token) headers.set('Authorization', `${session.token_type || 'Bearer'} ${session.access_token}`)
-      if (serverRuntime) serverHeaders().forEach((value, key) => headers.set(key, value))
+      if (sentToken) headers.set('Authorization', `${session?.token_type || 'Bearer'} ${sentToken}`)
       if (session?.app_version) headers.set('X-App-Version', session.app_version)
       if (body !== undefined) headers.set('Content-Type', 'application/json')
       if (httpMethod !== 'GET') headers.set('Idempotency-Key', idempotencyKey)
-      const init: RequestInit = { method: httpMethod, headers, body, credentials: serverRuntime ? 'include' : 'omit', redirect: 'error' }
-      const target = localDevelopment && method === 'user.profile.read'
-        ? localProfilePath
-        : `${runtimeBase()}${path}`
-      return serverRuntime ? fetchWithServerSession(target, init) : fetch(target, init)
+      const init: RequestInit = { method: httpMethod, headers, body, credentials: 'omit', redirect: 'error' }
+      return fetch(`${gatewayBase()}${path}`, init)
     }
     let response = await request()
     if (localDevelopment) assertLocalRuntimeResponse(response, requestId)
-    if (localDevelopment && await localLoginRequired(response, requestId)) {
-      response = await request()
-      assertLocalRuntimeResponse(response, requestId)
-    } else if (!localDevelopment && response.status === 401) {
+    if (response.status === 401) {
+      // A failed explicit status probe must not be memoized; a later
+      // `auth.status()` call should retry Gateway instead of trusting the
+      // previous result.
+      gatewaySessionValidationToken = ''
       const body = await readErrorBody(response.clone())
       if (isGatewaySessionExpired(response, body)) {
         await refreshSession()
         response = await request()
+      } else if (await waitForSessionRotation(sentToken)) {
+        response = await request()
       }
     }
     const result = await response.json().catch(() => null)
-    assertServerSessionActive()
-    if (!response.ok) throw serverFailure(createApiError(response, result, requestId))
+    if (!response.ok) throw createApiError(response, result, requestId)
     const value = isRecord(result) && Object.prototype.hasOwnProperty.call(result, 'data') ? result.data : result
     return value as T
   }
@@ -1425,15 +1127,13 @@ export function createAppClient(appId: string, options: AppClientOptions = {}) {
     if (electronRuntime) return unwrapElectronResult<T>(await detectedElectronHost!.call(method, payload))
     return httpCall<T>(method, payload)
   }
-  if (!serverRuntime) window.addEventListener('beforeunload', cleanup)
+  window.addEventListener('beforeunload', cleanup)
 
   const refreshSession = async (): Promise<AppSession> => {
     if (destroyed) throw createSdkError('APP_AUTH_CHANGED', '应用已关闭，请重新打开应用。')
     if (gatewaySessionError) throw gatewaySessionError
-    if (localDevelopment || electronRuntime) {
+    if (electronRuntime) {
       if (refreshPromise) return refreshPromise
-      // These hosts own the credential. Ask them to validate/recover the
-      // session and return only public metadata to the renderer.
       refreshPromise = authStatus().then(status => {
         const { account_scope: _previousScope, ...base } = session || {
           access_token: '', token_type: 'Bearer', expires_in: 0, gateway_url: '',
@@ -1443,28 +1143,51 @@ export function createAppClient(appId: string, options: AppClientOptions = {}) {
       }).finally(() => { refreshPromise = null })
       return refreshPromise
     }
-    if (serverRuntime) {
-      // The first explicit createSession is a metadata lookup. Once a cookie
-      // session is known, refresh rotates it through the refresh endpoint.
-      return requestServerSession(Boolean(session))
-    }
-    if (directRuntime) {
-      if (!session?.access_token && !options.refreshAppSession) {
+    if (localDevelopment || directRuntime) {
+      if (localDevelopment && !session?.access_token) {
+        if (localSessionLoadPromise) return localSessionLoadPromise
+      const loadSession = refreshAppSession
+        ? refreshAppSession()
+        : loadLocalDevelopmentAppSession(appId, options.localAppVersion || 'local')
+      const pending = loadSession.then((issuedSession) => {
+          if (destroyed) throw createSdkError('APP_AUTH_CHANGED', '应用已关闭，请重新打开应用。')
+        const nextSession = localDevelopment
+          ? { ...issuedSession, gateway_url: localGatewayPath.replace(/\/$/, '') }
+          : issuedSession
+          if (!gatewayBaseIsAllowed(nextSession.gateway_url, true)) {
+            throw createSdkError('APP_GATEWAY_URL_INVALID', 'Refreshed App Session must use a canonical Gateway /v1 URL')
+          }
+          acceptSession(nextSession)
+          session = nextSession
+          return nextSession
+        }).finally(() => {
+          if (localSessionLoadPromise === pending) localSessionLoadPromise = null
+        })
+        localSessionLoadPromise = pending
+        return pending
+      }
+      if (!session?.access_token && !refreshAppSession) {
         throw createSdkError('APP_SESSION_UNAVAILABLE', 'App data-plane session is not ready')
       }
-      if (!options.refreshAppSession) {
+      if (!refreshAppSession) {
+        if (localDevelopment && bearerSessionExpiresAt <= Date.now()) {
+          throw createSdkError('APP_LOGIN_REQUIRED', '本地应用会话已过期，请重新登录平台。', undefined, 401)
+        }
         return session!
       }
       if (refreshPromise) return refreshPromise
       const previousSession = session
       const previousToken = session?.access_token
-      refreshPromise = options.refreshAppSession().then((nextSession) => {
+      refreshPromise = refreshAppSession().then((issuedSession) => {
         if (destroyed || session !== previousSession || session?.access_token !== previousToken)
           throw createSdkError('APP_AUTH_CHANGED', '账户授权已改变，请重新检查登录状态。')
+        const nextSession = localDevelopment
+          ? { ...issuedSession, gateway_url: localGatewayPath.replace(/\/$/, '') }
+          : issuedSession
         if (!nextSession?.access_token?.startsWith('ast_') || !nextSession.gateway_url) {
           throw createSdkError('APP_SESSION_INVALID', 'OAuth refresh did not return a valid user App Session')
         }
-        if (!gatewayBaseIsAllowed(nextSession.gateway_url)) {
+        if (!gatewayBaseIsAllowed(nextSession.gateway_url, localDevelopment)) {
           throw createSdkError('APP_GATEWAY_URL_INVALID', 'Refreshed App Session must use a canonical Gateway /v1 URL')
         }
         acceptSession(nextSession)
@@ -1478,31 +1201,88 @@ export function createAppClient(appId: string, options: AppClientOptions = {}) {
     throw createSdkError('APP_SESSION_REFRESH_UNAVAILABLE', 'App session refresh is not available for this runtime')
   }
 
-  // An auth failure freezes the old server client and aborts its requests so
-  // stale work cannot continue under another account. The explicit
-  // `platform.createSession()` action is the login gate's recovery path, so it
-  // must create a fresh request boundary before checking the browser cookie
-  // again. Otherwise a valid cookie issued by the Portal would be hidden by
-  // the previous APP_SESSION_INVALID state forever.
+  const validateGatewaySession = async (current: AppSession): Promise<AppSession> => {
+    // Browser runtimes use the Gateway as the single source of truth for
+    // admission. Electron keeps its host-owned auth/status contract because
+    // the bearer never lives in the renderer.
+    if (!directRuntime && !localDevelopment) return current
+    const token = current.access_token
+    if (!token) throw createSdkError('APP_SESSION_UNAVAILABLE', 'App data-plane session is not ready')
+    if (gatewaySessionValidationToken === token && session?.access_token === token) return session
+    if (gatewaySessionValidationPromise) return gatewaySessionValidationPromise
+    const promise = (async () => {
+      // `auth.status()` is an explicit live check, so it uses the smallest
+      // authenticated Gateway route. Normal startup does not call this path.
+      try {
+        await httpCall<AppProfile>('user.profile.read')
+      } catch (error) {
+        const failure = error && typeof error === 'object' ? error as { status?: unknown; authReason?: unknown } : {}
+        // Local development has no server-side user credential or refresh
+        // relay. A rejected session must trigger the app's explicit Portal
+        // login action, which exchanges the HttpOnly device cookie again.
+        if (localDevelopment && failure.status === 401 && session?.access_token === token && !options.refreshAppSession) {
+          throw createSdkError('APP_LOGIN_REQUIRED', '当前应用会话已失效，请重新登录平台。', (error as AppSdkError)?.requestId, 401, error)
+        }
+        if ((!localDevelopment && !directRuntime) || failure.status !== 401 || session?.access_token !== token) throw error
+        await refreshSession()
+        await httpCall<AppProfile>('user.profile.read')
+      }
+      const verified = session
+      if (!verified?.access_token) throw createSdkError('APP_SESSION_UNAVAILABLE', 'App data-plane session is not ready')
+      gatewaySessionValidationToken = verified.access_token
+      return verified
+    })().finally(() => {
+      gatewaySessionValidationPromise = null
+    })
+    gatewaySessionValidationPromise = promise
+    return promise
+  }
+
   const createPlatformSession = async (): Promise<AppSession> => {
-    if (serverRuntime && serverSessionError) {
-      serverSessionError = null
-      serverAbortController = new AbortController()
-      refreshPromise = null
-      gatewaySessionError = null
-      session = null
-      serverAppID = appId
-      serverAccountScope = undefined
-      serverUserID = undefined
-      serverSessionCheckedAt = 0
-      serverSessionExpiresAt = 0
-      serverRefreshFailures = 0
+    // Portal already authenticated and issued this user-bound App Session.
+    // Admit from its trusted handoff metadata without a duplicate Gateway
+    // preflight; Gateway validates the bearer on each actual data-plane call.
+    let current = session?.access_token && bearerSessionExpiresAt > Date.now()
+      ? session
+      : await refreshSession()
+    if (directRuntime || localDevelopment) {
+      if (current.access_token && bearerSessionExpiresAt <= Date.now()) {
+        throw createSdkError(
+          localDevelopment ? 'APP_LOGIN_REQUIRED' : 'APP_SESSION_EXPIRED',
+          localDevelopment ? '本地应用会话已过期，请重新登录平台。' : '平台授权已过期，请重新登录。',
+          undefined,
+          401,
+        )
+      }
+      if (current.access_token && !validAccountScope(current.account_scope)) {
+        await recoverAccountScope(current)
+        current = session || current
+      }
+      if (current.access_token && !validAccountScope(current.account_scope)) throw accountScopeUnavailable()
     }
-    return refreshSession()
+    return current
   }
 
   const ensureBearerSession = async () => {
-    if (localDevelopment || electronRuntime || serverRuntime || !session?.access_token) return
+    if (electronRuntime) return
+    if (localDevelopment) {
+      if (session?.access_token && bearerSessionExpiresAt > Date.now()) return
+      if (session?.access_token) {
+        await refreshSession()
+      } else {
+        const status = await authStatus()
+        if (!status.authenticated) {
+          // Keep background/data-plane calls silent. Login is an explicit UI
+          // action; a missing session must not open a popup as a side effect
+          // of loading models or restoring storage.
+          throw createSdkError('APP_LOGIN_REQUIRED', '请先登录平台账户', undefined, 401)
+        }
+        if (!session?.access_token) throw createSdkError('APP_SESSION_UNAVAILABLE', 'App data-plane session is not ready')
+        if (bearerSessionExpiresAt <= Date.now()) await refreshSession()
+      }
+      return
+    }
+    if (!session?.access_token) return
     // Direct consumers can supply their own rotation callback. If they have
     // none, retain manual-token use until expiry instead of rejecting an
     // otherwise valid request during the renewal window.
@@ -1510,13 +1290,16 @@ export function createAppClient(appId: string, options: AppClientOptions = {}) {
     if (bearerSessionExpiresAt <= Date.now()) await refreshSession()
   }
 
-  if (serverRuntime) {
-    window.addEventListener('storage', handlePortalAuthChange)
-    window.addEventListener('focus', recoverVisibleServerSession)
-    window.addEventListener('online', recoverVisibleServerSession)
-    window.addEventListener('pageshow', recoverVisibleServerSession)
-    window.addEventListener('pagehide', handleServerPageHide)
-    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', recoverVisibleServerSession)
+  // A request can be sent with the previous bearer while another call replaces
+  // the App Session. Gateway may return a generic credential_invalid instead
+  // of an explicit expiry response. Retry only when
+  // this client can prove that its session changed after the request started;
+  // unrelated authentication failures must still surface to the caller.
+  const waitForSessionRotation = async (sentToken: string): Promise<boolean> => {
+    if (!sentToken) return false
+    const pending = refreshPromise
+    if (pending) await pending
+    return Boolean(session?.access_token && session.access_token !== sentToken)
   }
 
   return {
@@ -1635,19 +1418,19 @@ export function createAppClient(appId: string, options: AppClientOptions = {}) {
       read: () => call<{ locale: string }>('locale.read'),
     },
     platform: {
-      /** Refresh a direct session, or validate/recover a credential-owning host session. */
+      /** Read the current browser session (refreshing after expiry) or host-owned auth status. */
       createSession: createPlatformSession,
       capabilities: () => call<Array<{ method: string; scope?: string; description: string }>>('platform.capabilities.list'),
       call: <T = unknown>(method: string, payload?: unknown) => call<T>(method, payload),
     },
     auth: {
-      /** Whether this runtime can start login itself or requires its platform host. */
+      /** Browser applications receive sessions from the Portal login flow. */
       loginMode: (localDevelopment || electronRuntime ? 'app' : 'host') as 'app' | 'host',
-      /** Explicit recovery behavior; server runtimes relaunch through the trusted Portal. */
-      recoveryMode: (serverRuntime ? 'redirect' : localDevelopment || electronRuntime ? 'login' : 'host') as 'redirect' | 'login' | 'host',
-      /** Open local/desktop login or explicitly relaunch a server runtime through the Portal. */
+      /** Explicit recovery behavior for a runtime without credentials of its own. */
+      recoveryMode: (localDevelopment || electronRuntime ? 'login' : 'host') as 'login' | 'host',
+      /** Ask the owning host to recover the Gateway App Session. */
       login,
-      /** Clear the local relay session so another platform user can sign in. */
+      /** Clear this tab's App Session so another platform user can sign in. */
       logout,
       /** Read authentication state without initiating a login flow. */
       status: authStatus,
@@ -1696,48 +1479,43 @@ export function createAppClient(appId: string, options: AppClientOptions = {}) {
           return value as T
         }
         if (gatewaySessionError) throw gatewaySessionError
-        if (serverRuntime) await ensureServerSession()
-        else await ensureBearerSession()
-        if (!session && !serverRuntime) throw createSdkError('APP_SESSION_UNAVAILABLE', 'App data-plane session is not ready')
+        await ensureBearerSession()
+        if (!session?.access_token) throw createSdkError('APP_SESSION_UNAVAILABLE', 'App data-plane session is not ready')
         const requestId = generateRequestId()
         // Keep the trace ID and operation idempotency key independent. The
         // gateway intentionally treats X-Request-ID as a trace value, while
         // Idempotency-Key identifies a write operation across retries.
         const idempotencyKey = generateRequestId()
         const { responseType = 'auto', ...fetchInit } = init
+        let sentToken = ''
         const request = () => {
+          sentToken = session?.access_token || ''
           const headers = new Headers(init.headers)
-          if (!serverRuntime) headers.set('Authorization', `${session?.token_type || 'Bearer'} ${session?.access_token || ''}`)
-          if (serverRuntime) {
-            headers.delete('Authorization')
-            serverHeaders().forEach((value, key) => headers.set(key, value))
-          }
+          headers.set('Authorization', `${session!.token_type || 'Bearer'} ${sentToken}`)
           if (session?.app_version) headers.set('X-App-Version', session.app_version)
           if (!headers.has('X-Request-ID')) headers.set('X-Request-ID', requestId)
           if ((init.method || 'GET').toUpperCase() !== 'GET' && !headers.has('Idempotency-Key')) headers.set('Idempotency-Key', idempotencyKey)
           if (!headers.has('Content-Type') && shouldDefaultJsonContentType(init.body)) headers.set('Content-Type', 'application/json')
           // App API paths are relative to the App Session's Gateway URL.
-          const requestInit: RequestInit = { ...fetchInit, headers, credentials: serverRuntime ? 'include' : 'omit', redirect: 'error' }
-          return serverRuntime ? fetchWithServerSession(`${gatewayRequestBase()}${path}`, requestInit) : fetch(`${gatewayRequestBase()}${path}`, requestInit)
+          const requestInit: RequestInit = { ...fetchInit, headers, credentials: 'omit', redirect: 'error' }
+          return fetch(`${gatewayBase()}${path}`, requestInit)
         }
         let response = await request()
         if (localDevelopment) assertLocalRuntimeResponse(response, requestId)
-        if (localDevelopment && await localLoginRequired(response, requestId)) {
-          response = await request()
-        } else if (!localDevelopment && response.status === 401) {
+        if (response.status === 401) {
           const body = await readErrorBody(response.clone())
           if (isGatewaySessionExpired(response, body)) {
             await refreshSession()
+            response = await request()
+          } else if (await waitForSessionRotation(sentToken)) {
             response = await request()
           }
         }
         if (!response.ok) {
           const body = await readErrorBody(response)
-          assertServerSessionActive()
-          throw serverFailure(createApiError(response, body, requestId))
+          throw createApiError(response, body, requestId)
         }
         const value = attachResponseRequestId(await decodeResponse(response, responseType), response, requestId) as T
-        assertServerSessionActive()
         return value
       },
       stream: async function* <T = unknown>(path: string, init: RequestInit = {}): AsyncGenerator<AppApiStreamEvent<T>> {
@@ -1793,41 +1571,40 @@ export function createAppClient(appId: string, options: AppClientOptions = {}) {
           return
         }
         if (gatewaySessionError) throw gatewaySessionError
-        if (serverRuntime) await ensureServerSession()
-        else await ensureBearerSession()
-        if (!session && !serverRuntime) throw createSdkError('APP_SESSION_UNAVAILABLE', 'App data-plane session is not ready')
+        await ensureBearerSession()
+        if (!session?.access_token) throw createSdkError('APP_SESSION_UNAVAILABLE', 'App data-plane session is not ready')
         const requestId = generateRequestId()
         const idempotencyKey = generateRequestId()
+        let sentToken = ''
         const request = () => {
+          sentToken = session?.access_token || ''
           const headers = new Headers(init.headers)
           headers.set('Accept', 'text/event-stream')
-          if (!serverRuntime) headers.set('Authorization', `${session?.token_type || 'Bearer'} ${session?.access_token || ''}`)
-          if (serverRuntime) {
-            headers.delete('Authorization')
-            serverHeaders().forEach((value, key) => headers.set(key, value))
-          }
+          headers.set('Authorization', `${session!.token_type || 'Bearer'} ${sentToken}`)
           if (session?.app_version) headers.set('X-App-Version', session.app_version)
           if (!headers.has('X-Request-ID')) headers.set('X-Request-ID', requestId)
           if ((init.method || 'GET').toUpperCase() !== 'GET' && !headers.has('Idempotency-Key')) headers.set('Idempotency-Key', idempotencyKey)
           if (!headers.has('Content-Type') && shouldDefaultJsonContentType(init.body)) headers.set('Content-Type', 'application/json')
-          const requestInit: RequestInit = { ...init, headers, credentials: serverRuntime ? 'include' : 'omit', redirect: 'error' }
-          return serverRuntime ? fetchWithServerSession(`${gatewayRequestBase()}${path}`, requestInit) : fetch(`${gatewayRequestBase()}${path}`, requestInit)
+          const requestInit: RequestInit = { ...init, headers, credentials: 'omit', redirect: 'error' }
+          return fetch(`${gatewayBase()}${path}`, requestInit)
         }
         let response = await request()
         if (localDevelopment) assertLocalRuntimeResponse(response, requestId)
-        if (localDevelopment && await localLoginRequired(response, requestId)) {
-          response = await request()
-        } else if (!localDevelopment && response.status === 401) {
+        if (response.status === 401) {
           const body = await readErrorBody(response.clone())
           if (isGatewaySessionExpired(response, body)) {
             await refreshSession()
+            response = await request()
+          } else if (await waitForSessionRotation(sentToken)) {
+            // A concurrent refresh may revoke the bearer after the stream
+            // request was sent. Retry only with the confirmed replacement;
+            // generic 401 responses without a rotation remain terminal.
             response = await request()
           }
         }
         if (!response.ok) {
           const body = await readErrorBody(response)
-          assertServerSessionActive()
-          throw serverFailure(createApiError(response, body, requestId))
+          throw createApiError(response, body, requestId)
         }
         if (!response.body) {
           throw new AppSdkError(
@@ -1862,14 +1639,13 @@ export function createAppClient(appId: string, options: AppClientOptions = {}) {
         try {
           while (!streamDone) {
             const chunk = await reader.read()
-            assertServerSessionActive()
             buffer += decoder.decode(chunk.value || new Uint8Array(), { stream: !chunk.done })
             const lines = buffer.split(/\r?\n/)
             buffer = lines.pop() || ''
             for (const line of lines) {
               if (line === '') {
                 const event = flush()
-                if (event) { assertServerSessionActive(); yield event }
+                if (event) yield event
                 if (streamDone) break
               } else if (line.startsWith('event:')) {
                 eventName = line.slice(6).trim()
@@ -1883,7 +1659,7 @@ export function createAppClient(appId: string, options: AppClientOptions = {}) {
             if (buffer.startsWith('data:')) dataLines.push(buffer.slice(5).trimStart())
             else if (buffer.startsWith('event:')) eventName = buffer.slice(6).trim()
             const event = flush()
-            if (event) { assertServerSessionActive(); yield event }
+            if (event) yield event
           }
         } finally {
           await reader.cancel().catch(() => undefined)

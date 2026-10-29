@@ -85,8 +85,16 @@ test('direct app API requests are sent only to the App Session Gateway', async (
   }
 })
 
-test('direct runtime without a Portal handoff fails closed without an Admin request', async () => {
+test('direct runtime without a browser App Session fails closed without an Admin request', async () => {
   const previousFetch = globalThis.fetch
+  const previousSessionStorage = globalThis.sessionStorage
+  globalThis.sessionStorage = {
+    getItem: () => null,
+    setItem() {},
+    removeItem() {},
+    length: 0,
+    key: () => null,
+  }
   let requests = 0
   globalThis.fetch = async () => {
     requests += 1
@@ -103,6 +111,8 @@ test('direct runtime without a Portal handoff fails closed without an Admin requ
   } finally {
     if (previousFetch === undefined) delete globalThis.fetch
     else globalThis.fetch = previousFetch
+    if (previousSessionStorage === undefined) delete globalThis.sessionStorage
+    else globalThis.sessionStorage = previousSessionStorage
   }
 })
 
@@ -144,13 +154,13 @@ test('voice design Gateway routes are available through the SDK allowlist', asyn
           ['/voice-design/generations', 'POST'],
           ['/voice-design/by-idempotency-key/voice-submit-1', 'GET'],
           ['/voice-design/tasks/task-1', 'GET'],
-          ['/voice-design/tasks/task-1/content', 'GET'],
           ['/voice-design/tasks/task-1', 'DELETE'],
         ]
         for (const [path, method] of routes) await app.api.request(path, { method, ...(method === 'POST' ? { body: '{}' } : {}) })
         assert.deepEqual(calls.map(call => [new URL(call.path).pathname.replace(/^\/v1/, ''), call.init.method || 'GET']), routes)
         await assert.rejects(app.api.request('/voice-design/models', { method: 'POST', body: '{}' }), { code: 'APP_API_PATH_NOT_ALLOWED' })
         await assert.rejects(app.api.request('/voice-design/by-idempotency-key/voice-submit-1', { method: 'POST', body: '{}' }), { code: 'APP_API_PATH_NOT_ALLOWED' })
+        await assert.rejects(app.api.request('/voice-design/tasks/task-1/content', { method: 'GET' }), { code: 'APP_API_PATH_NOT_ALLOWED' })
         await assert.rejects(app.api.request('/voice-design/tasks/task-1/content', { method: 'DELETE' }), { code: 'APP_API_PATH_NOT_ALLOWED' })
       } finally { app.destroy() }
     })
@@ -160,63 +170,29 @@ test('voice design Gateway routes are available through the SDK allowlist', asyn
   }
 })
 
-test('request tracing preserves binary and native media responses', async () => {
+test('retired media content, TTS, and embeddings routes are rejected before dispatch', async () => {
   const previousFetch = globalThis.fetch
-  const bytes = new Uint8Array([82, 73, 70, 70, 16, 0, 0, 0, 87, 65, 86, 69])
-  globalThis.fetch = async path => String(path).endsWith('/content')
-    ? new Response(bytes, { headers: { 'Content-Type': 'audio/wav', 'X-Request-ID': 'media-trace' } })
-    : json({ id: 'voice-task' }, 200, { 'X-Request-ID': 'metadata-trace' })
+  let requests = 0
+  globalThis.fetch = async () => { requests += 1; return json({ ok: true }) }
   try {
     await withWindow(async () => {
       const app = createAppClient('app.example.canvas', { runtime: 'direct', appSession: makeSession() })
       try {
-        const path = '/voice-design/tasks/voice-task/content'
-        for (const responseType of ['blob', 'auto']) {
-          const blob = await app.api.request(path, { responseType })
-          assert.ok(blob instanceof Blob)
-          assert.equal(blob.type, 'audio/wav')
-          assert.deepEqual(new Uint8Array(await blob.arrayBuffer()), bytes)
-        }
-        const buffer = await app.api.request(path, { responseType: 'arrayBuffer' })
-        assert.ok(buffer instanceof ArrayBuffer)
-        assert.deepEqual(new Uint8Array(buffer), bytes)
-        const response = await app.api.request(path, { responseType: 'response' })
-        assert.ok(response instanceof Response)
-        assert.equal(response.headers.get('X-Request-ID'), 'media-trace')
-        assert.deepEqual(new Uint8Array(await response.arrayBuffer()), bytes)
-        assert.deepEqual(await app.api.request('/voice-design/tasks/voice-task'), { id: 'voice-task', request_id: 'metadata-trace' })
-      } finally { app.destroy() }
-    })
-  } finally {
-    if (previousFetch === undefined) delete globalThis.fetch
-    else globalThis.fetch = previousFetch
-  }
-})
-
-test('TTS Gateway routes are available through the SDK allowlist with narrow methods', async () => {
-  const previousFetch = globalThis.fetch
-  const calls = []
-  globalThis.fetch = async (path, init) => {
-    calls.push({ path: String(path), init })
-    return json({ ok: true })
-  }
-  try {
-    await withWindow(async () => {
-      const app = createAppClient('app.example.canvas', { runtime: 'direct', appSession: makeSession() })
-      try {
-        const routes = [
+        for (const [path, method] of [
+          ['/embeddings', 'POST'],
           ['/tts/models', 'GET'],
           ['/tts/generations', 'POST'],
           ['/tts/by-idempotency-key/tts-submit-1', 'GET'],
           ['/tts/tasks/task-1', 'GET'],
           ['/tts/tasks/task-1/content', 'GET'],
           ['/tts/tasks/task-1', 'DELETE'],
-        ]
-        for (const [path, method] of routes) await app.api.request(path, { method, ...(method === 'POST' ? { body: '{}' } : {}) })
-        assert.deepEqual(calls.map(call => [new URL(call.path).pathname.replace(/^\/v1/, ''), call.init.method || 'GET']), routes)
-        await assert.rejects(app.api.request('/tts/models', { method: 'POST', body: '{}' }), { code: 'APP_API_PATH_NOT_ALLOWED' })
-        await assert.rejects(app.api.request('/tts/by-idempotency-key/tts-submit-1', { method: 'POST', body: '{}' }), { code: 'APP_API_PATH_NOT_ALLOWED' })
-        await assert.rejects(app.api.request('/tts/tasks/task-1/content', { method: 'DELETE' }), { code: 'APP_API_PATH_NOT_ALLOWED' })
+          ['/videos/task-1/content', 'GET'],
+          ['/music/tasks/task-1/content', 'GET'],
+          ['/voice-design/tasks/task-1/content', 'GET'],
+        ]) {
+          await assert.rejects(app.api.request(path, { method, ...(method === 'POST' ? { body: '{}' } : {}) }), { code: 'APP_API_PATH_NOT_ALLOWED' })
+        }
+        assert.equal(requests, 0)
       } finally { app.destroy() }
     })
   } finally {
@@ -274,6 +250,9 @@ test('direct SDK keeps a valid short-lived session until expiry before refreshin
         assert.equal(refreshes, 0, 'an active session must not depend on an early refresh')
         now += 3_600_000
         assert.equal((await app.auth.status()).authenticated, true)
+        // Status validates the current Gateway session. Rotation happens only
+        // when the next business request needs an expired bearer.
+        await app.api.request('/models')
         assert.equal(refreshes, 1, 'an expired session may use its configured refresh callback')
       } finally { app.destroy() }
     })
@@ -314,7 +293,7 @@ test('API errors omit diagnostic URLs while preserving their request ID', async 
   }
 })
 
-test('fee estimates use only POST /estimates in direct, local and server runtimes', async t => {
+test('fee estimates use only POST /estimates and route every browser runtime to Gateway', async t => {
   for (const runtime of ['direct', 'local', 'server']) {
     await t.test(runtime, async () => {
       const previousFetch = globalThis.fetch
@@ -322,36 +301,31 @@ test('fee estimates use only POST /estimates in direct, local and server runtime
       const estimate = { estimated: true, known: false, amount: null, currency: 'USD', reason_code: 'pricing_unavailable' }
       globalThis.fetch = async (path, init) => {
         calls.push({ path: String(path), init })
-        if (runtime === 'server' && String(path).endsWith('/session')) return json({ data: {
-          app_id: 'app.example.canvas', app_slug: 'app.example.canvas', app_version: '1.0.0',
-          account_scope: 'acs_' + 'a'.repeat(64), expires_in: 30 * 24 * 60 * 60,
-        } })
-        return json(estimate)
+        return json(estimate, 200, { 'X-Proxy-App-Dev': '1' })
       }
       try {
         await withWindow(async () => {
-          const app = createAppClient('app.example.canvas', { runtime, ...(runtime === 'direct' ? { appSession: makeSession() } : {}) })
+          const app = createAppClient('app.example.canvas', {
+            runtime,
+            appSession: makeSession(runtime === 'local' ? { gateway_url: '/v1' } : {}),
+          })
           try {
             const body = JSON.stringify({ model: 'image-1', model_type: 'image', operation: 'generation', parameters: { n: 2, size: '1024x1024' } })
             const result = await app.api.request('/estimates', { method: 'POST', body })
             assert.deepEqual({ ...result, request_id: undefined }, { ...estimate, request_id: undefined })
             const request = calls.at(-1)
-            assert.equal(request.path, runtime === 'direct' ? 'https://api.example.test/v1/estimates' : runtime === 'server' ? '/api/app-runtime/v1/gateway/estimates' : '/v1/estimates')
+            assert.equal(request.path, ['direct', 'server'].includes(runtime) ? 'https://api.example.test/v1/estimates' : '/v1/estimates')
             assert.equal(request.init.method, 'POST')
             assert.equal(request.init.body, body)
             assert.equal(request.init.headers.get('Content-Type'), 'application/json')
-            if (runtime === 'direct') assert.equal(request.init.headers.get('Authorization'), 'Bearer ast_user_1')
-            if (runtime === 'server') {
-              assert.equal(request.init.credentials, 'include')
-              assert.equal(request.init.headers.has('Authorization'), false)
-            }
+            assert.equal(request.init.headers.get('Authorization'), 'Bearer ast_user_1')
             for (const [path, method] of [['/estimates', 'GET'], ['/estimates', 'DELETE'], ['/estimates/submit', 'POST'], ['/cost/estimate', 'POST']]) {
               await assert.rejects(app.api.request(path, { method }), { code: 'APP_API_PATH_NOT_ALLOWED' })
             }
             await assert.rejects((async () => {
               for await (const _event of app.api.stream('/estimates', { method: 'POST', body })) {}
             })(), { code: 'APP_API_PATH_NOT_ALLOWED' })
-            assert.equal(calls.length, runtime === 'server' ? 2 : 1)
+            assert.equal(calls.length, 1)
           } finally { app.destroy() }
         })
       } finally {
@@ -395,65 +369,23 @@ test('Electron estimate requests strip AbortSignal before IPC and discard cancel
   })
 })
 
-test('server runtime uses the HttpOnly cookie and same-origin Gateway proxy', async () => {
+test('legacy server runtime option uses the handed-off bearer session directly', async () => {
   const previousFetch = globalThis.fetch
   const calls = []
   globalThis.fetch = async (path, init) => {
     calls.push({ path: String(path), init })
-    if (String(path).endsWith('/session')) {
-      return json({ data: {
-        app_id: 'app.example.canvas', app_slug: 'app.example.canvas', app_version: '1.0.0',
-        runtime_gateway_url: '/api/app-runtime/v1/gateway', account_scope: 'acs_' + 'a'.repeat(64), scopes: ['storage.user'],
-      } })
-    }
     return json({ data: [{ id: 'model-1' }] })
   }
   try {
     await withWindow(async () => {
-      const app = createAppClient('app.example.canvas', { runtime: 'server' })
-      assert.deepEqual(await app.auth.status(), { authenticated: true, accountScope: 'acs_' + 'a'.repeat(64) })
+      const app = createAppClient('app.example.canvas', { runtime: 'server', appSession: makeSession() })
       const result = await app.api.request('/models')
       assert.deepEqual(result.data, [{ id: 'model-1' }])
-      assert.equal(calls[0].path, '/api/app-runtime/v1/session')
-      assert.equal(calls[1].path, '/api/app-runtime/v1/gateway/models')
-      assert.equal(calls[1].init.credentials, 'include')
-      assert.equal(calls[1].init.headers.has('Authorization'), false)
-      assert.equal(new Headers(calls[0].init.headers).get('X-App-ID'), 'app.example.canvas')
-      assert.equal(calls[1].init.headers.get('X-App-ID'), 'app.example.canvas')
-      app.destroy()
-    })
-  } finally {
-    if (previousFetch === undefined) delete globalThis.fetch
-    else globalThis.fetch = previousFetch
-  }
-})
-
-test('server runtime rotates the cookie session once after pre-execution expiry', async () => {
-  const previousFetch = globalThis.fetch
-  const calls = []
-  let gatewayAttempts = 0
-  globalThis.fetch = async (path, init) => {
-    calls.push({ path: String(path), init })
-    if (String(path).endsWith('/session')) return json({ data: {
-      app_id: 'app.example.canvas', app_slug: 'app.example.canvas', app_version: '1.0.0',
-      runtime_gateway_url: '/api/app-runtime/v1/gateway', account_scope: 'acs_' + 'a'.repeat(64), scopes: [],
-    } })
-    if (String(path).endsWith('/session/refresh')) return json({ data: {
-      app_id: 'app.example.canvas', app_slug: 'app.example.canvas', app_version: '1.0.0',
-      runtime_gateway_url: '/api/app-runtime/v1/gateway', account_scope: 'acs_' + 'a'.repeat(64), scopes: [],
-    } })
-    gatewayAttempts += 1
-    if (gatewayAttempts === 1) return json({ error: { code: 'APP_SESSION_EXPIRED', execution_started: false } }, 401)
-    return json({ data: [{ id: 'model-1' }] })
-  }
-  try {
-    await withWindow(async () => {
-      const app = createAppClient('app.example.canvas', { runtime: 'server' })
-      await app.auth.status()
-      const result = await app.api.request('/models')
-      assert.deepEqual(result.data, [{ id: 'model-1' }])
-      assert.equal(calls.filter(call => call.path.endsWith('/session/refresh')).length, 1)
-      assert.equal(calls.find(call => call.path.endsWith('/session/refresh')).init.method, 'POST')
+      assert.equal(calls.length, 1)
+      assert.equal(calls[0].path, 'https://api.example.test/v1/models')
+      assert.equal(calls[0].init.headers.get('Authorization'), 'Bearer ast_user_1')
+      assert.equal(calls[0].init.credentials, 'omit')
+      assert.equal(calls.some(call => call.path.includes('/api/app-runtime/')), false)
       app.destroy()
     })
   } finally {
@@ -558,16 +490,14 @@ test('generic app API requests allow only the registered KV Gateway routes', asy
       const calls = []
       globalThis.fetch = async (path, init) => {
         calls.push({ path: String(path), init })
-        if (runtime === 'server' && String(path).endsWith('/session')) return json({ data: {
-          app_id: 'app.example.canvas', app_slug: 'app.example.canvas', app_version: '1.0.0',
-          runtime_gateway_url: '/api/app-runtime/v1/gateway', account_scope: 'acs_' + 'a'.repeat(64),
-          expires_in: 30 * 24 * 60 * 60,
-        } })
-        return json({ data: { ok: true } })
+        return json({ data: { ok: true } }, 200, { 'X-Proxy-App-Dev': '1' })
       }
       try {
         await withWindow(async () => {
-          const app = createAppClient('app.example.canvas', { runtime, ...(runtime === 'direct' ? { appSession: makeSession() } : {}) })
+          const app = createAppClient('app.example.canvas', {
+            runtime,
+            appSession: makeSession(runtime === 'local' ? { gateway_url: '/v1' } : {}),
+          })
           try {
             const routes = [
               ['/storage/items?key=draft', 'GET'],
@@ -582,21 +512,16 @@ test('generic app API requests allow only the registered KV Gateway routes', asy
               ['/storage/workspace/batch', 'POST'],
             ]
             for (const [path, method] of routes) await app.api.request(path, { method, ...(method === 'PUT' ? { body: JSON.stringify({ value: 1 }) } : method === 'POST' ? { body: JSON.stringify({ operations: [] }) } : {}) })
-            const gatewayCalls = calls.filter(call => call.path.includes('/gateway/') || call.path.includes('/v1/storage/'))
+            const gatewayCalls = calls.filter(call => call.path.includes('/v1/storage/'))
             assert.deepEqual(gatewayCalls.map(call => [
               new URL(call.path, 'https://app.example.test').pathname
-                .replace(/^\/v1/, '')
-                .replace(/^\/api\/app-runtime\/v1\/gateway/, ''),
+                .replace(/^\/v1/, ''),
               call.init.method || 'GET',
             ]), routes.map(([path, method]) => [path.split('?')[0], method]))
             assert.equal(gatewayCalls.length, 10)
             assert.deepEqual(JSON.parse(gatewayCalls[1].init.body), { value: 1 })
             for (const call of gatewayCalls) {
-              if (runtime === 'direct') assert.equal(call.init.headers.get('Authorization'), 'Bearer ast_user_1')
-              if (runtime === 'server') {
-                assert.equal(call.init.credentials, 'include')
-                assert.equal(call.init.headers.has('Authorization'), false)
-              }
+              assert.equal(call.init.headers.get('Authorization'), 'Bearer ast_user_1')
             }
             await assert.rejects(app.api.request('/storage/items/other', { method: 'GET' }), { code: 'APP_API_PATH_NOT_ALLOWED' })
             await assert.rejects(app.api.request('/storage/keys', { method: 'POST', body: '{}' }), { code: 'APP_API_PATH_NOT_ALLOWED' })
@@ -606,7 +531,7 @@ test('generic app API requests allow only the registered KV Gateway routes', asy
             await assert.rejects((async () => {
               for await (const _event of app.api.stream('/storage/batch', { method: 'POST', body: '{}' })) {}
             })(), { code: 'APP_API_PATH_NOT_ALLOWED' })
-            assert.equal(calls.length, runtime === 'server' ? 11 : 10)
+            assert.equal(calls.length, 10)
           } finally { app.destroy() }
         })
       } finally {
@@ -626,7 +551,7 @@ test('control-plane methods and retired transport paths are rejected before disp
       const app = createAppClient('app.example.canvas', { runtime: 'direct', appSession: makeSession() })
       assert.deepEqual(await app.user.getProfile(), {})
       await assert.rejects(app.platform.capabilities(), { code: 'APP_RUNTIME_METHOD_NOT_SUPPORTED' })
-      for (const path of ['/api/app-runtime/v1/profile', '/bridge', '/v2/models']) {
+      for (const path of ['/api/app-runtime/v1/profile', '/bridge', '/v2/models', '/auth/status', '/__platform/auth/status']) {
         await assert.rejects(app.api.request(path), { code: 'APP_API_PATH_NOT_ALLOWED' })
       }
       assert.equal(requests, 1)
@@ -680,23 +605,33 @@ test('Gateway session expiry refreshes once before execution and keeps the reque
   }
 })
 
-test('local development uses /v1 for data and the dedicated auth relay for login state', async () => {
+test('a request sent with a superseded session retries once with the rotated bearer', async () => {
   const previousFetch = globalThis.fetch
   const calls = []
+  let attempts = 0
+  let app
   globalThis.fetch = async (path, init) => {
     calls.push({ path: String(path), init })
-    if (String(path).startsWith('/__platform/auth/')) return json({ data: { authenticated: false } })
-    return json({ data: [{ id: 'model-1' }] })
+    attempts += 1
+    if (attempts === 1) {
+      // Simulate the relay revoking the bearer while this request is in
+      // flight. The SDK already has the replacement session by the time the
+      // generic credential_invalid response arrives.
+      await app.refreshSession()
+      return json({ error: { code: 'credential_invalid' } }, 401)
+    }
+    return json({ data: { id: 'model-1' } })
   }
   try {
     await withWindow(async () => {
-      const app = createAppClient('app.example.canvas', { runtime: 'local', localGatewayPath: '/v1' })
+      app = createAppClient('app.example.canvas', {
+        runtime: 'direct', appSession: makeSession(),
+        refreshAppSession: async () => makeSession({ access_token: 'ast_user_2' }),
+      })
       const result = await app.api.request('/models')
-      assert.deepEqual(result.data, [{ id: 'model-1' }])
-      assert.deepEqual(await app.auth.status(), { authenticated: false })
-      assert.equal(calls[0].path, '/v1/models')
-      assert.equal(calls[1].path, '/__platform/auth/status')
-      assert.equal(calls.some(call => call.path.includes('/api/app-runtime') || call.path.includes('/bridge')), false)
+      assert.deepEqual(result.data, { id: 'model-1' })
+      assert.equal(calls.length, 2)
+      assert.equal(calls[1].init.headers.get('Authorization'), 'Bearer ast_user_2')
       app.destroy()
     })
   } finally {
@@ -705,19 +640,235 @@ test('local development uses /v1 for data and the dedicated auth relay for login
   }
 })
 
-test('local development reads the signed-in profile through the relay', async () => {
+test('a storage request sent with a superseded session retries once with the rotated bearer', async () => {
+  const previousFetch = globalThis.fetch
+  const calls = []
+  let attempts = 0
+  let app
+  globalThis.fetch = async (path, init) => {
+    calls.push({ path: String(path), init })
+    attempts += 1
+    if (attempts === 1) {
+      await app.refreshSession()
+      return json({ error: { code: 'credential_invalid' } }, 401)
+    }
+    return json({ data: { ok: true } })
+  }
+  try {
+    await withWindow(async () => {
+      app = createAppClient('app.example.canvas', {
+        runtime: 'direct', appSession: makeSession(),
+        refreshAppSession: async () => makeSession({ access_token: 'ast_user_2' }),
+      })
+      assert.deepEqual(await app.storage.get('canvas:draft'), { ok: true })
+      assert.equal(calls.length, 2)
+      assert.match(calls[0].path, /\/storage\/items\?key=canvas%3Adraft$/)
+      assert.equal(calls[1].init.headers.get('Authorization'), 'Bearer ast_user_2')
+      app.destroy()
+    })
+  } finally {
+    if (previousFetch === undefined) delete globalThis.fetch
+    else globalThis.fetch = previousFetch
+  }
+})
+
+test('a stream sent with a superseded session retries once before opening the stream', async () => {
+  const previousFetch = globalThis.fetch
+  const calls = []
+  let attempts = 0
+  let app
+  globalThis.fetch = async (path, init) => {
+    calls.push({ path: String(path), init })
+    attempts += 1
+    if (attempts === 1) {
+      await app.refreshSession()
+      return json({ error: { code: 'credential_invalid' } }, 401)
+    }
+    return new Response('event: message\ndata: {"ok":true}\n\ndata: [DONE]\n\n', {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+    })
+  }
+  try {
+    await withWindow(async () => {
+      app = createAppClient('app.example.canvas', {
+        runtime: 'direct', appSession: makeSession(),
+        refreshAppSession: async () => makeSession({ access_token: 'ast_user_2' }),
+      })
+      const events = []
+      for await (const event of app.api.stream('/messages', { method: 'POST', body: '{}' })) events.push(event)
+      assert.deepEqual(events, [{ event: 'message', data: { ok: true } }])
+      assert.equal(calls.length, 2)
+      assert.equal(calls[1].init.headers.get('Authorization'), 'Bearer ast_user_2')
+      app.destroy()
+    })
+  } finally {
+    if (previousFetch === undefined) delete globalThis.fetch
+    else globalThis.fetch = previousFetch
+  }
+})
+
+test('local development uses the handed-off App Session and sends all business data to Gateway', async () => {
   const previousFetch = globalThis.fetch
   const calls = []
   globalThis.fetch = async (path, init) => {
     calls.push({ path: String(path), init })
-    if (String(path) === '/__platform/auth/profile') return json({ data: { id: 'user-1', username: 'Pelican creator' } })
-    return json({ data: { authenticated: true } })
+    return json({ data: [{ id: 'model-1' }] }, 200, { 'X-Proxy-App-Dev': '1' })
   }
   try {
     await withWindow(async () => {
-      const app = createAppClient('app.example.canvas', { runtime: 'local', localGatewayPath: '/v1' })
+      const app = createAppClient('app.example.canvas', { runtime: 'local', appSession: makeSession({ gateway_url: '/v1' }), localGatewayPath: '/v1' })
+      const result = await app.api.request('/models')
+      assert.deepEqual(result.data, [{ id: 'model-1' }])
+      assert.deepEqual(await app.auth.status(), { authenticated: true, accountScope: makeSession().account_scope })
+      assert.equal(calls[0].path, '/v1/models')
+      assert.equal(calls[0].init.headers.get('Authorization'), 'Bearer ast_user_1')
+      assert.equal(calls[1].path, '/v1/profile')
+      assert.equal(calls.some(call => call.path.includes('/api/app-runtime') || call.path.includes('/bridge')), false)
+      assert.equal(calls.some(call => /\/(?:auth|__platform)(?:\/|$)/.test(call.path)), false)
+      app.destroy()
+    })
+  } finally {
+    if (previousFetch === undefined) delete globalThis.fetch
+    else globalThis.fetch = previousFetch
+  }
+})
+
+test('local development without a tab session asks the UI to sign in and makes no auth request', async () => {
+  const previousFetch = globalThis.fetch
+  const previousWindow = globalThis.window
+  const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage')
+  const calls = []
+  globalThis.window = {
+    parent: {},
+    location: { hostname: '127.0.0.1', origin: 'http://127.0.0.1:5173', protocol: 'http:' },
+    addEventListener() {}, removeEventListener() {}, setTimeout, clearTimeout,
+  }
+  Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, value: { length: 0, key: () => null, getItem: () => null, setItem() {}, removeItem() {} } })
+  globalThis.fetch = async (path, init) => { calls.push({ path: String(path), init }); return json({ data: [] }) }
+  try {
+    const app = createAppClient('app.example.local', { runtime: 'local', localAppVersion: '0.3.6' })
+    try {
+      assert.deepEqual(await app.auth.status(), { authenticated: false })
+      await assert.rejects(app.platform.createSession(), { code: 'APP_LOGIN_REQUIRED' })
+      assert.deepEqual(calls, [])
+    } finally { app.destroy() }
+  } finally {
+    globalThis.fetch = previousFetch
+    if (previousWindow === undefined) delete globalThis.window
+    else globalThis.window = previousWindow
+    if (previousStorage) Object.defineProperty(globalThis, 'sessionStorage', previousStorage)
+    else delete globalThis.sessionStorage
+  }
+})
+
+test('local development signs in through the Portal and uses the returned tab-scoped App Session', async () => {
+  const previousFetch = globalThis.fetch
+  const previousWindow = globalThis.window
+  const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage')
+  const listeners = new Map()
+  const calls = []
+  let requestedURL = ''
+  const popup = {
+    closed: false,
+    location: { replace(url) { requestedURL = url } },
+    close() { this.closed = true },
+  }
+  const topLevel = {
+    parent: {},
+    location: { hostname: '127.0.0.1', origin: 'http://127.0.0.1:5173', protocol: 'http:' },
+    open: () => popup,
+    addEventListener: (name, handler) => listeners.set(name, handler),
+    removeEventListener: name => listeners.delete(name),
+    setTimeout, clearTimeout, setInterval, clearInterval,
+  }
+  globalThis.window = topLevel
+  Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, value: { length: 0, key: () => null, getItem: () => null, setItem() {}, removeItem() {} } })
+  globalThis.fetch = async (path, init) => {
+    calls.push({ path: String(path), init })
+    if (String(path) === '/__proxy-app/auth/grant') {
+      return json({ data: { development_grant: 'development-preview-grant-0123456789' } })
+    }
+    return json({ data: [{ id: 'model-1' }] }, 200, { 'X-Proxy-App-Dev': '1' })
+  }
+  try {
+    const app = createAppClient('app.example.local', {
+      runtime: 'local', localAppVersion: '0.3.6', portalURL: 'https://portal.example.test',
+    })
+    try {
+      const login = app.auth.login()
+      await new Promise(resolve => setImmediate(resolve))
+      const popupURL = new URL(requestedURL)
+      assert.equal(popupURL.origin, 'https://portal.example.test')
+      const params = new URLSearchParams(popupURL.hash.slice('#/login?'.length))
+      assert.equal(params.get('proxy_app_browser'), '1')
+      assert.equal(params.get('proxy_app_origin'), 'http://127.0.0.1:5173')
+      assert.equal(params.get('proxy_app_id'), 'app.example.local')
+      assert.equal(params.get('proxy_app_version'), '0.3.6')
+      assert.equal(params.get('proxy_app_development_grant'), 'development-preview-grant-0123456789')
+      const state = params.get('proxy_app_state')
+      assert.ok(state)
+      assert.deepEqual(calls.map(call => call.path), ['/__proxy-app/auth/grant'])
+      listeners.get('message')({
+        source: popup,
+        origin: 'https://portal.example.test',
+        data: { protocol: 'proxy-app/auth/v1', type: 'login-complete', state, app_session: makeSession({
+          app_id: 'app-build', app_slug: 'app.example.local', app_version: '0.3.6', gateway_url: 'https://api.example.test/v1',
+        }) },
+      })
+      await login
+      assert.equal(app.session().gateway_url, '/v1')
+      assert.equal(popup.closed, true)
+      await app.api.request('/models')
+      assert.deepEqual(calls.map(call => call.path), ['/__proxy-app/auth/grant', '/v1/models'])
+      assert.equal(calls[1].init.credentials, 'omit')
+      assert.equal(calls[1].init.headers.get('Authorization'), 'Bearer ast_user_1')
+    } finally { app.destroy() }
+  } finally {
+    globalThis.fetch = previousFetch
+    if (previousWindow === undefined) delete globalThis.window
+    else globalThis.window = previousWindow
+    if (previousStorage) Object.defineProperty(globalThis, 'sessionStorage', previousStorage)
+    else delete globalThis.sessionStorage
+  }
+})
+
+test('a rejected local App Session requires interactive Portal login and is not silently relayed', async () => {
+  const previousFetch = globalThis.fetch
+  const calls = []
+  globalThis.fetch = async (path, init) => {
+    calls.push({ path: String(path), init })
+    return json({ error: { code: 'credential_invalid' } }, 401, { 'X-Proxy-App-Dev': '1' })
+  }
+  try {
+    await withWindow(async () => {
+      const app = createAppClient('app.example.canvas', { runtime: 'local', localAppVersion: '1.0.0', appSession: makeSession({ gateway_url: '/v1' }) })
+      try {
+        // Session admission consumes the Portal handoff. An explicit live
+        // Gateway check is the operation that detects a revoked bearer.
+        await assert.rejects(app.auth.status(), { code: 'APP_LOGIN_REQUIRED' })
+        assert.deepEqual(calls.map(call => call.path), ['/v1/profile'])
+      } finally { app.destroy() }
+    })
+  } finally {
+    if (previousFetch === undefined) delete globalThis.fetch
+    else globalThis.fetch = previousFetch
+  }
+})
+
+test('local development reads the signed-in profile from Gateway with the handed-off App Session', async () => {
+  const previousFetch = globalThis.fetch
+  const calls = []
+  globalThis.fetch = async (path, init) => {
+    calls.push({ path: String(path), init })
+    return json({ data: { id: 'user-1', username: 'Pelican creator' } }, 200, { 'X-Proxy-App-Dev': '1' })
+  }
+  try {
+    await withWindow(async () => {
+      const app = createAppClient('app.example.canvas', { runtime: 'local', appSession: makeSession({ gateway_url: '/v1' }), localGatewayPath: '/v1' })
       assert.deepEqual(await app.user.getProfile(), { id: 'user-1', username: 'Pelican creator' })
-      assert.equal(calls[0].path, '/__platform/auth/profile')
+      assert.equal(calls[0].path, '/v1/profile')
+      assert.equal(calls[0].init.headers.get('Authorization'), 'Bearer ast_user_1')
       app.destroy()
     })
   } finally {

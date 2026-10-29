@@ -143,6 +143,7 @@ app/
 
 - [应用开发指南](docs/APP_DEVELOPMENT.md)
 - [应用市场指南](docs/APP_MARKET.md)
+- [无状态 JavaScript 服务端运行时架构](../docs/APP_CONTAINER_RUNTIME_DESIGN.md)
 - [API 参考](docs/API_REFERENCE.md)
 - [参与贡献](CONTRIBUTING.md)
 - [安全策略](SECURITY.md)

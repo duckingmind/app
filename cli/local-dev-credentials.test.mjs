@@ -87,22 +87,17 @@ test('unsupported systems use memory without writing credentials or calling secu
   await assert.rejects(readdir(f.options.stateDirectory), { code: 'ENOENT' })
 })
 
-test('developer preparation and runtime login have independent cache and logout scopes', async (t) => {
+test('the local credential cache stores developer authorization only', async (t) => {
   const f = await fixture(t)
-  await f.create().save('runtime-user-token')
-  assert.equal(await f.create({ purpose: 'runtime' }).load(), 'runtime-user-token')
+  const store = f.create()
+  await store.save('developer-token')
+  assert.equal(await f.create().load(), 'developer-token')
+  assert.throws(() => f.create({ purpose: 'runtime' }), /只支持开发者授权/)
   const developer = f.create({ purpose: 'development' })
-  assert.equal(await developer.load(), null)
-  await developer.save('developer-token')
-  assert.equal(await f.create().load(), 'runtime-user-token')
+  assert.equal(await developer.load(), 'developer-token')
   assert.equal(await f.create({ purpose: 'development', version: '0.2.0', entryURL: 'http://127.0.0.1:6000/' }).load(), 'developer-token')
-  await f.create().clear()
-  assert.equal(await f.create().load(), null)
-  assert.equal(await f.create({ purpose: 'development' }).load(), 'developer-token')
-  await f.create().save('another-user-token')
   await developer.clear()
-  assert.equal(await f.create({ purpose: 'development' }).load(), null)
-  assert.equal(await f.create().load(), 'another-user-token')
+  assert.equal(await f.create().load(), null)
 })
 
 test('missing Keychain entries are normal and do not disable secure persistence', async (t) => {

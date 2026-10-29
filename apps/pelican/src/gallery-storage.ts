@@ -1,5 +1,3 @@
-export const LOCAL_GALLERY_KEY = 'pelican:gallery:v1'
-export const LOCAL_GALLERY_DELETIONS_KEY = 'pelican:gallery:deleted:v1'
 export const MAX_GALLERY_ITEMS = 60
 export const MAX_RAW_STORAGE = 105_000
 export const MAX_HTML_STORAGE = 125_000
@@ -12,11 +10,10 @@ export type GalleryItem = {
   modelId?: string
   reasoningEffort?: string
   generatedAt: string
+  requestId?: string
   raw: string
   html: string
 }
-
-export type GalleryStorage = Pick<Storage, 'getItem' | 'setItem'>
 
 function validGalleryItem(value: unknown): value is GalleryItem {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
@@ -29,6 +26,7 @@ export function fitGalleryItem(item: GalleryItem): GalleryItem {
   return { ...item, raw: item.raw.slice(0, MAX_RAW_STORAGE), html: item.html.slice(0, MAX_HTML_STORAGE) }
 }
 
+/** De-duplicates by result id and keeps the newest bounded gallery view. */
 export function mergeGalleryItems(...groups: readonly GalleryItem[][]): GalleryItem[] {
   const byId = new Map<string, GalleryItem>()
   for (const group of groups) {
@@ -40,69 +38,4 @@ export function mergeGalleryItems(...groups: readonly GalleryItem[][]): GalleryI
   return [...byId.values()]
     .sort((a, b) => b.generatedAt.localeCompare(a.generatedAt))
     .slice(0, MAX_GALLERY_ITEMS)
-}
-
-export function readLocalGallery(storage: GalleryStorage, key = LOCAL_GALLERY_KEY): GalleryItem[] {
-  const raw = storage.getItem(key)
-  if (!raw) return []
-  try {
-    const parsed: unknown = JSON.parse(raw)
-    return Array.isArray(parsed) ? mergeGalleryItems(parsed.filter(validGalleryItem)) : []
-  } catch {
-    return []
-  }
-}
-
-export function writeLocalGalleryItems(items: readonly GalleryItem[], storage: GalleryStorage, key = LOCAL_GALLERY_KEY): GalleryItem[] {
-  const normalized = mergeGalleryItems(items.map(fitGalleryItem))
-  let next = normalized
-  while (next.length) {
-    try {
-      storage.setItem(key, JSON.stringify(next))
-      return next
-    } catch (error) {
-      if (!isQuotaError(error) || next.length === 1) throw error
-      next = next.slice(0, -1)
-    }
-  }
-  storage.setItem(key, '[]')
-  return []
-}
-
-export function readDeletedGalleryIds(storage: GalleryStorage, key = LOCAL_GALLERY_DELETIONS_KEY): string[] {
-  const raw = storage.getItem(key)
-  if (!raw) return []
-  try {
-    const parsed: unknown = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : []
-  } catch {
-    return []
-  }
-}
-
-function isQuotaError(error: unknown) {
-  if (!error || typeof error !== 'object') return false
-  const candidate = error as { name?: string; code?: number }
-  return candidate.name === 'QuotaExceededError' || candidate.name === 'NS_ERROR_DOM_QUOTA_REACHED' || candidate.code === 22 || candidate.code === 1014
-}
-
-/** Stores newest results first and drops oldest browser copies only when quota requires it. */
-export function writeLocalGallery(item: GalleryItem, storage: GalleryStorage, key = LOCAL_GALLERY_KEY): GalleryItem[] {
-  let items = mergeGalleryItems([fitGalleryItem(item)], readLocalGallery(storage, key))
-  try {
-    const deleted = readDeletedGalleryIds(storage).filter(id => id !== item.id)
-    storage.setItem(LOCAL_GALLERY_DELETIONS_KEY, JSON.stringify(deleted))
-  } catch {
-    // The result itself is the important write; tombstone cleanup is best effort.
-  }
-  return writeLocalGalleryItems(items, storage, key)
-}
-
-export function deleteLocalGalleryItem(id: string, storage: GalleryStorage, key = LOCAL_GALLERY_KEY): GalleryItem[] {
-  const deleted = new Set(readDeletedGalleryIds(storage))
-  deleted.add(id)
-  storage.setItem(LOCAL_GALLERY_DELETIONS_KEY, JSON.stringify([...deleted].slice(-MAX_GALLERY_ITEMS * 2)))
-  const items = readLocalGallery(storage, key).filter(item => item.id !== id)
-  storage.setItem(key, JSON.stringify(items))
-  return items
 }

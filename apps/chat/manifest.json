@@ -1,7 +1,7 @@
 {
   "schema": "proxy.app/v1",
   "id": "chat",
-  "version": "0.0.1",
+  "version": "0.0.6",
   "name": "即刻对话",
-  "description": "一个基于平台模型的聊天与图片、视频、音乐创作应用。"
+  "description": "一个基于平台模型的聊天与图片、视频、音乐和音色创作应用。"
 }

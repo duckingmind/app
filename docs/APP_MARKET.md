@@ -59,7 +59,7 @@ manifest 位于应用源码根目录，并会被放在发布压缩包根目录�
 | 字段 | 可选值 | 用途 |
 | --- | --- | --- |
 | `permissions` | `user.profile.read`、`platform.capabilities.read`、`storage.user`、`notification`、`theme.read`、`locale.read` | 宿主权限，可省略；默认提供全部公开权限，显式列表可缩小宿主范围。 |
-| `apis` | `model.responses`、`model.chat`、`model.messages`、`model.embeddings`、`model.images`、`model.videos`、`model.music`、`model.voice_design`、`model.tts` | 兼容性的能力元数据，可省略；不参与 Gateway 授权。实际调用由平台签发的 App Session 或 API Key scope、账户权益和路由策略决定。 |
+| `apis` | `model.responses`、`model.chat`、`model.messages`、`model.images`、`model.videos`、`model.music`、`model.voice_design` | 兼容性的能力元数据，可省略；不参与 Gateway 授权。`model.embeddings`、`model.tts` 等历史值仅为旧包兼容保留，不代表当前存在对应路由。实际调用由平台签发的 App Session 或 API Key scope、账户权益和路由策略决定。 |
 | `pricing.mode` | `commission` | 可选的兼容元数据；正式收费在“我的应用”中设置，首次申请开放和新版本发布必须使用抽成。 |
 
 桌面端构建和宿主兼容性由平台私有发行流程管理，不通过应用 manifest 单独开关或配置入口。
@@ -70,9 +70,10 @@ Web 应用和私有 Electron 宿主都使用包根目录的 `index.html`。
 新应用不需要填写这四项。`permissions` 省略时，平台自动为会话分配公开宿主权限；`apis` 仅作为
 兼容性的能力目录，不是数据面授权边界。主机权限在创建会话时从已审核版本解析，不建立或修改永久用户授权记录。
 
-应用统一通过同源入口和 HttpOnly App Session Cookie 运行，浏览器脚本不会拿到 `ast_` Token。平台根据已保存应用记录和
-发布状态决定是否允许运行。Gateway 路由仍按平台签发的会话
-scope、账户权益和路由策略校验；`apis` 列表不会额外收窄数据面能力。
+应用统一通过同源静态入口运行。Portal 在打开应用前签发绑定用户、应用和版本的 `ast_*` App Session，
+通过当前标签页的 `sessionStorage` 交接；应用浏览器只把该凭证发送到 Gateway `/v1/*`，不会访问 `/auth/*`、
+`/__platform/*`、Portal API 或 Admin Runtime。平台根据已保存应用记录和发布状态决定是否允许运行，
+Gateway 仍按 App Session、账户权益和路由策略校验；`apis` 列表不会额外收窄数据面能力。
 
 应用不需要安装，用户可直接打开已开放的应用。开发者在应用卡片的“设置收费”或“修改收费”中设置按调用抽成比例，收费不再区分免费和抽成。首次申请开放时，CLI 可使用 manifest 中的设置初始化收费；已保存配置时则复用应用配置。新开放申请和新版本发布必须设置有效抽成比例，已保存比例只能降低。审核中需先撤回才能调整。已开放应用保存收费后，在下次发布新版本时生效；候选版本首次发布时继承最新保存配置，不从 manifest 重设收费。历史已发布版本可保留一次性收费快照用于审计，但用户现可免费打开，既有订单不重写。仅支持回切历史抽成版本，未设置抽成的历史版本不能重新设为线上版本。切换历史抽成版本会恢复其原比例；界面切换前展示当前与目标收费。保存的待生效配置不随回滚改变。
 

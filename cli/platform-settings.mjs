@@ -1,4 +1,5 @@
 export const DEFAULT_PLATFORM_URL = 'https://www.duckingmind.com'
+export const DEFAULT_PLATFORM_GATEWAY_URL = 'https://api.duckingmind.com/v1'
 
 export function platformAPIBaseURL(env = process.env) {
   const explicit = env.PROXY_API_BASE_URL?.trim()

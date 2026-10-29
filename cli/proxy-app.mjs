@@ -9,16 +9,21 @@ import { zipSync } from 'fflate'
 import { createLocalDevelopmentRelay } from './local-dev-relay.mjs'
 import { createLocalCredentialStore } from './local-dev-credentials.mjs'
 import { assertSafeArtifactFile, assertSafeArtifactDirectory } from './artifact-security.mjs'
+import { readLocalFunctionSources } from './runtime-sources.mjs'
 import { resolveAgentContract } from './agent-contract.mjs'
-import { platformAPIBaseURL, platformPortalURL } from './platform-settings.mjs'
+import { DEFAULT_PLATFORM_GATEWAY_URL, platformAPIBaseURL, platformPortalURL } from './platform-settings.mjs'
+import { createBackendContainerSpec, dockerClientEnvironment, verifyDockerEngine } from './backend-container.mjs'
 
 const MAX_BUNDLE_BYTES = 50 * 1024 * 1024
+const APP_BACKEND_TYPES = new Set(['platform', 'container'])
+const APP_CONTAINER_RUNTIME = 'node22'
+const APP_BACKEND_DEV_PATH = '/api'
 const ALLOWED_PERMISSIONS = new Set(['user.profile.read', 'platform.capabilities.read', 'storage.user', 'notification', 'theme.read', 'locale.read'])
 const ALLOWED_APIS = new Set(['model.responses', 'model.chat', 'model.messages', 'model.embeddings', 'model.images', 'model.videos', 'model.music', 'model.voice_design', 'model.tts'])
 const ALLOWED_PRICING_MODES = new Set(['commission'])
 const ALLOWED_CATEGORIES = new Set(['ecommerce', 'comic', 'other'])
 const RESERVED_AGENT_NAMESPACES = new Set(['app', 'codex', 'desktop', 'proxy', 'system'])
-const BUNDLE_IGNORED_FILES = new Set(['.proxy-app.json', '.proxy-app-build'])
+const BUNDLE_IGNORED_FILES = new Set(['.proxy-app.json', '.proxy-app-session.json', '.proxy-app-build', '.proxy-app-runtime'])
 const APP_WORKSPACE_PATH = '/portal/user/app-workspace'
 // Public slugs are used verbatim, including single-segment names such as
 // "canvas". The platform's opaque app_id remains a separate compatibility
@@ -64,6 +69,8 @@ pack 无需提前执行 build 或 validate；已上传的版本由 publish 直�
 
   upload 只上传；publish 显式切换线上版本。首次使用 publish 仍需申请应用开放。
   --version 仅选择已上传版本，不构建、不上传、不修改本地 manifest。
+  backend.type=container 仅支持本地联调；云端构建和容器路由尚未开放。
+  容器后端本地运行需要已启动的 Docker Engine；服务进程在只读、非特权 Node 22 容器中启动。
   -o 与 --output 等价，也兼容原来的 <app-dir> <output.zip> 写法。
   --source 仅供 pack/upload 调试源码，跳过构建，不用于正式发布。
   应用分类：ecommerce（电商）、comic（漫剧）、other（其他，默认）。
@@ -73,19 +80,21 @@ Publish environment:
   PROXY_API_BASE_URL  default: https://www.duckingmind.com/api
                        Optional override when the platform uses a separate API host
   PROXY_PORTAL_URL    Optional login Portal override; default: https://www.duckingmind.com
-  PROXY_USER_ACCESS_TOKEN  Current platform user session for app management/CI only; never passed to the app
+  PROXY_PLATFORM_GATEWAY_URL  Gateway target for Vite /v1 proxy; default: ${DEFAULT_PLATFORM_GATEWAY_URL}
+  PROXY_USER_ACCESS_TOKEN  Platform user session for management, CI or developer authorization; never passed to the app
   PROXY_ACCESS_TOKEN       Legacy alias for PROXY_USER_ACCESS_TOKEN
 
   Local development:
   proxy-app dev <app-dir> [--port 5173]
-  If the requested port is occupied, the next available loopback port is used.
+  An explicitly requested occupied port fails with a clear error; the default port may advance automatically.
   Checks the app binding and developer permission before starting the app.
   First authorize the developer using the terminal login URL; then app users
   sign in separately for their own App Session, models, quota and billing.
-  App business traffic always uses the App Session Gateway (/v1). The local
-  relay exposes only the authentication control path and never an Admin Runtime
-  or legacy Bridge endpoint.
-  macOS stores developer and app-user authorization separately in Keychain.
+  App business traffic always uses the App Session Gateway (/v1). Vite sends
+  /v1 directly to the Gateway; set PROXY_PLATFORM_GATEWAY_URL only when using
+  a different Gateway environment. Runtime user sessions stay in the browser;
+  the local authorization callback handles developer setup only.
+  macOS stores developer authorization in Keychain.
   --no-auth-cache uses memory only. If a cached developer account cannot access
   the app, dev automatically asks you to authorize with the app creator account.
 
@@ -102,7 +111,10 @@ function option(args, name, fallback = '') {
 
 function reservePort(port) {
   return new Promise((resolvePromise, reject) => {
-    const server = createTCPServer()
+    // A platform health check or browser may connect while this socket reserves
+    // the selected port. Destroy probes immediately so server.close() cannot
+    // wait forever for a connection the temporary listener never serves.
+    const server = createTCPServer((socket) => socket.destroy())
     let settled = false
     const settle = (callback, value) => {
       if (settled) return
@@ -215,6 +227,175 @@ function safeRelative(value) {
   return normalized.split('/').filter(Boolean).join('/')
 }
 
+function validateBackendManifest(backend) {
+  if (backend === undefined || backend?.type === undefined || backend?.type === 'platform') return
+  if (!APP_BACKEND_TYPES.has(backend.type)) throw new Error('manifest.backend.type must be platform or container')
+  if (backend.type !== 'container') return
+  const supportedFields = new Set(['type', 'runtime', 'entry', 'port', 'health_check', 'routes', 'resources'])
+  for (const name of Object.keys(backend)) {
+    if (!supportedFields.has(name)) throw new Error(`unsupported manifest.backend field: ${name}`)
+  }
+  if (backend.runtime !== APP_CONTAINER_RUNTIME) throw new Error(`manifest.backend.runtime must be ${APP_CONTAINER_RUNTIME}`)
+  if (typeof backend.entry !== 'string') throw new Error('manifest.backend.entry is required for container backends')
+  let entry
+  try {
+    entry = safeRelative(backend.entry)
+  } catch (error) {
+    throw new Error(`manifest.backend.entry is invalid: ${error.message}`)
+  }
+  if (backend.entry.replaceAll('\\', '/') !== entry) {
+    throw new Error('manifest.backend.entry must be a normalized relative path')
+  }
+  if (!entry.startsWith('server/')) throw new Error('manifest.backend.entry must be inside server/')
+  if (entry.split('/').some((part) => part === '.' || part === '')) throw new Error('manifest.backend.entry must be a normalized relative path')
+  if (!['.js', '.mjs', '.cjs'].includes(entry.slice(entry.lastIndexOf('.')).toLowerCase())) {
+    throw new Error('manifest.backend.entry must be a JavaScript file (.js, .mjs, or .cjs)')
+  }
+  if (!Number.isInteger(backend.port) || backend.port < 1 || backend.port > 65535) {
+    throw new Error('manifest.backend.port must be an integer between 1 and 65535')
+  }
+  if (backend.health_check !== undefined && (
+    typeof backend.health_check !== 'string' || !backend.health_check.startsWith('/') ||
+    backend.health_check.startsWith('//') || /[?#\\]/.test(backend.health_check) || backend.health_check.split('/').includes('..')
+  )) {
+    throw new Error('manifest.backend.health_check must be an absolute safe path')
+  }
+  if (backend.routes !== undefined) {
+    if (!Array.isArray(backend.routes) || backend.routes.length === 0) throw new Error('manifest.backend.routes must be a non-empty array')
+    const seen = new Set()
+    for (const route of backend.routes) {
+      if (typeof route !== 'string' || !route.startsWith(`${APP_BACKEND_DEV_PATH}/`) ||
+        route.startsWith('//') || /[?#\\]/.test(route) || route.split('/').includes('..') ||
+        !(route.endsWith('/*') || !route.includes('*'))) {
+        throw new Error(`manifest.backend.routes entries must be safe ${APP_BACKEND_DEV_PATH} paths`)
+      }
+      if (seen.has(route)) throw new Error(`duplicate manifest.backend.routes entry: ${route}`)
+      seen.add(route)
+    }
+  }
+  if (backend.resources !== undefined) {
+    const resources = backend.resources
+    if (!resources || typeof resources !== 'object' || Array.isArray(resources)) throw new Error('manifest.backend.resources must be an object')
+    const bounds = { cpu_millicores: [50, 4000], memory_mib: [64, 8192], max_concurrency: [1, 1000] }
+    for (const [name, value] of Object.entries(resources)) {
+      const range = bounds[name]
+      if (!range) throw new Error(`unsupported manifest.backend.resources field: ${name}`)
+      if (!Number.isInteger(value) || value < range[0] || value > range[1]) {
+        throw new Error(`manifest.backend.resources.${name} must be an integer between ${range[0]} and ${range[1]}`)
+      }
+    }
+  }
+}
+
+// Runtime Host evaluates release entries as ES modules in QuickJS. Keep the
+// CLI contract aligned with Admin so a package cannot pass local validation
+// and then fail publication because its entry is CommonJS.
+const FUNCTION_ENTRY_EXTENSIONS = new Set(['.js', '.mjs'])
+const FUNCTION_SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'])
+
+function validateFunctionPath(value, field, { source = false } = {}) {
+  if (typeof value !== 'string') throw new Error(`manifest.functions.${field} must be a string`)
+  let normalized
+  try {
+    normalized = safeRelative(value)
+  } catch (error) {
+    throw new Error(`manifest.functions.${field} is invalid: ${error.message}`)
+  }
+  if (value.replaceAll('\\', '/') !== normalized || normalized.split('/').some(part => part === '.' || part === '')) {
+    throw new Error(`manifest.functions.${field} must be a normalized relative path`)
+  }
+  const extension = normalized.slice(normalized.lastIndexOf('.')).toLowerCase()
+  const allowed = source ? FUNCTION_SOURCE_EXTENSIONS : FUNCTION_ENTRY_EXTENSIONS
+  if (!allowed.has(extension)) {
+    throw new Error(`manifest.functions.${field} must be a ${source ? 'TypeScript or JavaScript' : 'JavaScript'} file`)
+  }
+  if (!source && !normalized.startsWith('runtime/')) throw new Error(`manifest.functions.${field} must be inside runtime/`)
+  if (source && !normalized.startsWith('src/')) throw new Error(`manifest.functions.${field} must be inside src/`)
+  return normalized
+}
+
+function validateFunctionRoutes(routes, field) {
+  if (routes === undefined) return
+  if (!Array.isArray(routes) || routes.length === 0) throw new Error(`manifest.functions.${field}.routes must be a non-empty array`)
+  const seen = new Set()
+  for (const route of routes) {
+    if (typeof route !== 'string' || !route.startsWith('/api/') || route.startsWith('//') || /[?#\\]/.test(route) || route.split('/').includes('..') || route.includes('*') && !route.endsWith('/*')) {
+      throw new Error(`manifest.functions.${field}.routes entries must be safe /api/ paths`)
+    }
+    if (seen.has(route)) throw new Error(`duplicate manifest.functions.${field}.routes entry: ${route}`)
+    seen.add(route)
+  }
+}
+
+function validateFunctionsManifest(functions) {
+  if (functions === undefined) return
+  if (!functions || typeof functions !== 'object' || Array.isArray(functions)) throw new Error('manifest.functions must be an object')
+  const names = Object.keys(functions)
+  if (!names.length || names.some(name => !['request', 'task'].includes(name))) throw new Error('manifest.functions may contain only request and task')
+  for (const name of names) {
+    const descriptor = functions[name]
+    if (!descriptor || typeof descriptor !== 'object' || Array.isArray(descriptor)) throw new Error(`manifest.functions.${name} must be an object`)
+    const supported = name === 'request'
+      ? new Set(['entry', 'source', 'routes', 'timeout_ms'])
+      : new Set(['entry', 'source', 'concurrency', 'max_attempts', 'timeout_ms'])
+    for (const field of Object.keys(descriptor)) if (!supported.has(field)) throw new Error(`unsupported manifest.functions.${name} field: ${field}`)
+    validateFunctionPath(descriptor.entry, `${name}.entry`)
+    if (descriptor.source !== undefined) validateFunctionPath(descriptor.source, `${name}.source`, { source: true })
+    if (name === 'request') {
+      validateFunctionRoutes(descriptor.routes, name)
+      if (!descriptor.routes?.length) throw new Error('manifest.functions.request.routes must declare at least one /api/ path')
+      if (descriptor.timeout_ms !== undefined && (!Number.isInteger(descriptor.timeout_ms) || descriptor.timeout_ms < 100 || descriptor.timeout_ms > 10 * 60 * 1000)) {
+        throw new Error('manifest.functions.request.timeout_ms must be an integer between 100 and 600000')
+      }
+    } else {
+      const bounds = { concurrency: [1, 1000], max_attempts: [1, 20], timeout_ms: [100, 3_600_000] }
+      for (const [field, value] of Object.entries(descriptor)) {
+        const range = bounds[field]
+        if (!range) continue
+        if (!Number.isInteger(value) || value < range[0] || value > range[1]) throw new Error(`manifest.functions.task.${field} must be an integer between ${range[0]} and ${range[1]}`)
+      }
+    }
+  }
+  if (functions.request && functions.task && functions.request.entry === functions.task.entry) {
+    throw new Error('manifest.functions.request.entry and task.entry must be different')
+  }
+}
+
+function validateDatabaseManifest(database) {
+  if (database !== undefined) throw new Error('manifest.database is no longer supported; use context.platform.request() through Gateway APIs')
+}
+
+async function validateFunctionEntries(appDir, artifactRoot, functions, { requireArtifact = false } = {}) {
+  if (!functions) return
+  for (const [name, descriptor] of Object.entries(functions)) {
+    if (descriptor.source && !(await exists(join(resolve(appDir), safeRelative(descriptor.source))))) {
+      throw new Error(`manifest.functions.${name}.source does not exist: ${descriptor.source}`)
+    }
+    const entry = safeRelative(descriptor.entry)
+    if (requireArtifact && !(await exists(join(artifactRoot, entry)))) {
+      throw new Error(`manifest.functions.${name}.entry does not exist in build output: ${entry}`)
+    }
+  }
+}
+
+async function validateBackendEntry(appDir, backend) {
+  if (backend?.type !== 'container') return
+  const relative = safeRelative(backend.entry)
+  const segments = relative.split('/')
+  let current = resolve(appDir)
+  for (const segment of segments) {
+    current = join(current, segment)
+    const info = await lstat(current).catch((error) => {
+      if (error.code === 'ENOENT') throw new Error(`manifest.backend.entry does not exist: ${relative}`)
+      throw error
+    })
+    if (info.isSymbolicLink()) throw new Error(`manifest.backend.entry cannot contain symbolic links: ${relative}`)
+    if (current !== join(resolve(appDir), relative) && !info.isDirectory()) throw new Error(`manifest.backend.entry parent is not a directory: ${relative}`)
+  }
+  const info = await lstat(current)
+  if (!info.isFile()) throw new Error(`manifest.backend.entry must be a regular file: ${relative}`)
+}
+
 async function exists(path) {
   try {
     await stat(path)
@@ -239,10 +420,9 @@ async function readManifest(appDir) {
   if (manifest.backend !== undefined && (!manifest.backend || typeof manifest.backend !== 'object' || Array.isArray(manifest.backend))) {
     throw new Error('manifest.backend must be an object')
   }
-  // App traffic always goes through the platform gateway. Treating backend as
-  // optional keeps the manifest focused on app-specific capabilities while
-  // preserving an explicit rejection for unsupported backends.
-  if ((manifest.backend?.type || 'platform') !== 'platform') throw new Error('manifest.backend.type must be platform')
+  validateBackendManifest(manifest.backend)
+  validateFunctionsManifest(manifest.functions)
+  validateDatabaseManifest(manifest.database)
   // Permissions are optional metadata. An omitted list means the app accepts
   // the platform's currently supported public capabilities; an explicit list
   // remains available for legacy packages that intentionally narrow access.
@@ -302,6 +482,7 @@ async function readManifest(appDir) {
 async function validateApp(appDir, { checkBuildManifest = true, source = false } = {}) {
   const root = resolve(appDir)
   const { manifest, entry } = await readManifest(root)
+  await validateBackendEntry(root, manifest.backend)
   // The package identity is carried by manifest.id. A legacy sidecar may be
   // present, but it is deliberately ignored here: local validation must not
   // turn the removed link/repair workflow into an upload prerequisite. The
@@ -315,6 +496,7 @@ async function validateApp(appDir, { checkBuildManifest = true, source = false }
   if (manifest.assets?.icon && !(await exists(join(artifactRoot, safeRelative(manifest.assets.icon))))) {
     console.warn(`warning: manifest.assets.icon is missing: ${manifest.assets.icon}`)
   }
+  await validateFunctionEntries(root, artifactRoot, manifest.functions, { requireArtifact: artifactRoot !== root })
   if (checkBuildManifest && artifactRoot !== root && await exists(join(artifactRoot, 'manifest.json'))) {
     const builtManifest = JSON.parse(await readFile(join(artifactRoot, 'manifest.json'), 'utf8'))
     if (JSON.stringify(builtManifest) !== JSON.stringify(manifest)) {
@@ -425,6 +607,8 @@ async function devApp(appDir, args) {
     throw new Error('package.json 的 dev:server 脚本必须直接调用 Vite 等开发服务器，不能调用 proxy-app dev 或 npm run dev。')
   }
   const { manifest } = await readManifest(root)
+  await validateBackendEntry(root, manifest.backend)
+  const functionFiles = await readLocalFunctionSources(root, manifest)
   const supportedOptions = new Set(['--port', '--no-auth-cache'])
   for (const arg of args) {
     if (arg.startsWith('--') && !supportedOptions.has(arg)) {
@@ -435,12 +619,35 @@ async function devApp(appDir, args) {
   // registration resolves the stable ID in memory before creating sessions.
   const binding = { app_id: manifest.id, slug: manifest.id }
   const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
+  const backend = manifest.backend?.type === 'container' ? manifest.backend : null
+  const gatewayURL = process.env.PROXY_PLATFORM_GATEWAY_URL?.trim() || DEFAULT_PLATFORM_GATEWAY_URL
+  let backendContainer
+  if (backend) {
+    const dockerBin = process.env.PROXY_APP_DOCKER_BIN || 'docker'
+    const dockerEnv = dockerClientEnvironment(process.env)
+    await verifyDockerEngine({ dockerBin, env: dockerEnv })
+    backendContainer = await createBackendContainerSpec({
+      appDir: root,
+      backend,
+      appID: manifest.id,
+      version: manifest.version,
+      gatewayURL,
+      dockerBin,
+      dockerEnv,
+    })
+  }
   const devScript = ['dev:server', 'dev'].find(name => typeof pkg.scripts?.[name] === 'string' && pkg.scripts[name].trim())
   if (!devScript) throw new Error('package.json 缺少 dev:server 脚本，请配置 Vite 等开发服务器启动命令。')
   const requestedPort = option(args, '--port', process.env.PROXY_APP_DEV_PORT || '5173')
   if (!/^\d+$/.test(requestedPort) || Number(requestedPort) < 1 || Number(requestedPort) > 65535) throw new Error('--port must be between 1 and 65535')
   const configuredEntryURL = process.env.PROXY_APP_DEV_URL?.trim() || ''
-  let portReservation = configuredEntryURL ? null : await reserveAvailablePort(Number(requestedPort))
+  const portWasExplicit = args.includes('--port') || Boolean(process.env.PROXY_APP_DEV_PORT?.trim())
+  let portReservation = configuredEntryURL ? null : portWasExplicit
+    ? await reservePort(Number(requestedPort))
+    : await reserveAvailablePort(Number(requestedPort))
+  if (!configuredEntryURL && portWasExplicit && !portReservation) {
+    throw new Error(`端口 ${requestedPort} 已被占用；请停止占用该端口的旧开发服务器，或改用 --port <可用端口> 后重试。`)
+  }
   const selectedPort = portReservation?.port || Number(requestedPort)
   if (!configuredEntryURL && selectedPort !== Number(requestedPort)) {
     console.warn(`端口 ${requestedPort} 已被占用，改用 ${selectedPort}。`)
@@ -449,13 +656,20 @@ async function devApp(appDir, args) {
   let parsedEntryURL
   try { parsedEntryURL = new URL(entryURL) } catch { throw new Error('PROXY_APP_DEV_URL must be a valid loopback http(s) URL') }
   if (!['http:', 'https:'].includes(parsedEntryURL.protocol) || !['localhost', '127.0.0.1', '::1'].includes(parsedEntryURL.hostname) || parsedEntryURL.username || parsedEntryURL.password) {
+    await portReservation?.release()
     throw new Error('PROXY_APP_DEV_URL must use localhost, 127.0.0.1, or ::1 without credentials')
   }
-  const relaySecret = randomUUID()
+  let backendPortReservation = null
+  if (backend) {
+    backendPortReservation = await reservePort(backend.port)
+    if (!backendPortReservation) {
+      await portReservation?.release()
+      throw new Error(`应用后端端口 ${backend.port} 已被占用；请修改 manifest.backend.port 后重试。`)
+    }
+  }
   const baseURL = platformAPIBaseURL()
   const portalURL = platformPortalURL()
   const storeSettings = { baseURL, portalURL, appID: binding.app_id, projectPath: root }
-  const credentialStore = args.includes('--no-auth-cache') ? null : createLocalCredentialStore(storeSettings)
   const developerCredentialStore = args.includes('--no-auth-cache') ? null : createLocalCredentialStore({
     ...storeSettings, purpose: 'development',
   })
@@ -478,17 +692,17 @@ async function devApp(appDir, args) {
     relay = await createLocalDevelopmentRelay({
       baseURL,
       portalURL,
-      relaySecret,
       appID: binding.app_id,
       appSlug: manifest.id,
       version: manifest.version,
       manifest,
+      functionFiles,
       entryURL,
-      credentialStore: cachedOperations(credentialStore),
       developerCredentialStore: cachedOperations(developerCredentialStore),
     })
   } catch (error) {
     await portReservation?.release()
+    await backendPortReservation?.release()
     throw error
   }
   const {
@@ -499,17 +713,35 @@ async function devApp(appDir, args) {
     PROXY_PUBLIC_URL: _publicURL,
     PROXY_APP_DEV_URL: _entryURL,
     PROXY_APP_DEV_PORT: _devPort,
+    PROXY_APP_DEV_AUTH_RELAY_URL: _staleAuthRelayURL,
+    PROXY_APP_DEV_AUTH_RELAY_SECRET: _staleAuthRelaySecret,
+    PROXY_APP_DEV_SESSION_GRANT: _staleDevelopmentSessionGrant,
     PROXY_PLATFORM_GATEWAY_URL: _gatewayURL,
+    PROXY_PLATFORM_RUNTIME_URL: _runtimeURL,
+    PROXY_PLATFORM_BRIDGE_URL: _bridgeURL,
     PROXY_PLATFORM_AUTH_URL: _authURL,
-    PROXY_PLATFORM_RELAY_SECRET: _inheritedRelaySecret,
+    PROXY_APP_BACKEND_URL: _inheritedBackendURL,
+    PROXY_APP_BACKEND_PATH: _inheritedBackendPath,
     ...safeChildEnv
   } = process.env
+  // Keep the same-origin Vite proxy pointed at Gateway. Runtime user sessions
+  // are obtained by the Portal in the browser; the CLI relay is limited to
+  // developer authorization and draft registration.
+  const selectedGatewayURL = _gatewayURL?.trim() || gatewayURL
+  const browserPortalURL = new URL(portalURL).origin
   const childEnv = {
     ...safeChildEnv,
     PROXY_APP_DEV_ACTIVE: root,
-    PROXY_PLATFORM_GATEWAY_URL: `${relay.relayURL}/v1`,
-    PROXY_PLATFORM_AUTH_URL: `${relay.relayURL}/auth`,
-    PROXY_PLATFORM_RELAY_SECRET: relaySecret,
+    PROXY_PLATFORM_GATEWAY_URL: selectedGatewayURL,
+    VITE_PROXY_PORTAL_URL: browserPortalURL,
+    PROXY_APP_DEV_SESSION_API_URL: baseURL,
+    PROXY_APP_DEV_SESSION_PORTAL_URL: browserPortalURL,
+    PROXY_APP_DEV_SESSION_ID: manifest.id,
+    PROXY_APP_DEV_SESSION_VERSION: manifest.version,
+    ...(backend ? {
+      PROXY_APP_BACKEND_URL: `http://127.0.0.1:${backend.port}`,
+      PROXY_APP_BACKEND_PATH: APP_BACKEND_DEV_PATH,
+    } : {}),
   }
   const preparation = new AbortController()
   let canceledSignal = ''
@@ -536,20 +768,36 @@ async function devApp(appDir, args) {
         console.log('完成开发者授权并通过应用登记检查后才会启动本地应用。按 Ctrl+C 取消。')
       },
     })
+    childEnv.PROXY_APP_DEV_SESSION_GRANT = relay.getDevelopmentSessionGrant()
+    console.log('开发应用检查通过。')
+    preparation.signal.throwIfAborted()
     preparation.signal.throwIfAborted()
     removePreparationListeners()
-    console.log('开发应用检查通过。应用用户将在应用内独立登录。')
-    console.log(`Proxy App platform relay ready: ${relay.relayURL}`)
     console.log(`Local app: ${entryURL}`)
-    console.log('App transport: App Session Gateway (/v1); local relay auth is /__platform/auth.')
-    console.log('Platform mode: sign in from the app to use real models, provider routing, quota and billing.')
+    if (backend) {
+      console.log(`Local app backend: http://127.0.0.1:${backend.port}${APP_BACKEND_DEV_PATH}/*`)
+      console.log(`Backend runtime: Docker (${backend.runtime}); source is mounted read-only and app dependencies are installed in container tmpfs.`)
+    }
+    console.log('App transport: Gateway App Session (/v1); browser requests never leave the Gateway data plane.')
+    console.log('App Session: sign in through the Portal when prompted; the browser keeps it in this tab.')
     await portReservation?.release()
     portReservation = null
-    await runChild('npm', ['run', devScript, '--', '--host', '127.0.0.1', '--port', String(selectedPort), '--strictPort'], root, childEnv)
+    await backendPortReservation?.release()
+    backendPortReservation = null
+    const children = []
+    if (backendContainer) children.push(backendContainer)
+    children.push({
+      command: 'npm',
+      args: ['run', devScript, '--', '--host', '127.0.0.1', '--port', String(selectedPort), '--strictPort'],
+      cwd: root,
+      env: childEnv,
+      name: 'npm',
+    })
+    await runChildren(children)
   } catch (error) {
     if (!canceledSignal) {
       const guidance = []
-      if (error?.stage === 'app_registration') {
+      if (error?.stage === 'app_registration' && ['APP_APP_REGISTRATION_FAILED', 'APP_LOGIN_SESSION_EXPIRED'].includes(error?.code)) {
         if ([403, 404].includes(error.statusCode)) {
           guidance.push('请核对 manifest.json 中的 id（应用 slug）与上述平台地址，确认应用已在该平台创建。开发不需要绑定或 repair。')
           guidance.push('请使用应用创建者账户完成开发授权，并确认终端显示的平台地址与应用所在平台一致。')
@@ -557,9 +805,9 @@ async function devApp(appDir, args) {
         } else if (error.statusCode === 401) {
           guidance.push('请确认 PROXY_USER_ACCESS_TOKEN 属于应用创建者；如果该变量是旧账户令牌，请清除或取消设置后重新运行普通 proxy-app dev。')
         }
-        if (typeof error.requestId === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(error.requestId)) {
-          guidance.push(`请求编号：${error.requestId}`)
-        }
+      }
+      if (typeof error.requestId === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(error.requestId)) {
+        guidance.push(`请求编号：${error.requestId}`)
       }
       if (guidance.length) error.message += '\n' + guidance.join('\n')
       throw error
@@ -569,8 +817,77 @@ async function devApp(appDir, args) {
   } finally {
     removePreparationListeners()
     await portReservation?.release()
+    await backendPortReservation?.release()
     await relay.close()
   }
+}
+
+function runChildren(specifications) {
+  return new Promise((resolvePromise, reject) => {
+    const children = []
+    let stopping = false
+    let settled = false
+    let firstError = null
+    let remaining = specifications.length
+    const removeSignalHandlers = () => {
+      process.removeListener('SIGINT', onInterrupt)
+      process.removeListener('SIGTERM', onTerminate)
+    }
+    const stopChild = (child, signal = 'SIGTERM') => {
+      if (!child.pid || child.exitCode !== null || child.signalCode !== null) return
+      try {
+        if (process.platform !== 'win32') process.kill(-child.pid, signal)
+        else child.kill(signal)
+      } catch { /* Child exited between the state check and signal. */ }
+    }
+    const finish = () => {
+      if (settled || remaining > 0) return
+      settled = true
+      removeSignalHandlers()
+      if (firstError) reject(firstError)
+      else resolvePromise()
+    }
+    const stopAll = () => {
+      if (stopping) return
+      stopping = true
+      for (const child of children) stopChild(child)
+      const forceKill = setTimeout(() => {
+        for (const child of children) stopChild(child, 'SIGKILL')
+      }, 5000)
+      forceKill.unref()
+    }
+    const onInterrupt = () => { stopAll() }
+    const onTerminate = () => { stopAll() }
+    process.once('SIGINT', onInterrupt)
+    process.once('SIGTERM', onTerminate)
+    for (const specification of specifications) {
+      const child = spawn(specification.command, specification.args, {
+        cwd: specification.cwd,
+        env: specification.env,
+        stdio: 'inherit',
+        detached: process.platform !== 'win32',
+        shell: process.platform === 'win32',
+      })
+      children.push(child)
+      let childFinished = false
+      const finishChild = (error) => {
+        if (childFinished) return
+        childFinished = true
+        if (error && !firstError) firstError = error
+        remaining -= 1
+        if (error) stopAll()
+        finish()
+      }
+      child.once('error', (error) => {
+        finishChild(error)
+      })
+      child.once('close', (code, signal) => {
+        const unexpectedError = !stopping && code !== 0 ? new Error(`${specification.name} exited with ${code ?? signal}`) : null
+        finishChild(unexpectedError)
+        if (!stopping) stopAll()
+      })
+    }
+  })
 }
 
 async function packApp(appDir, output, { allowSource = false, allowSourceMaps = allowSource } = {}) {
@@ -592,6 +909,9 @@ async function packApp(appDir, output, { allowSource = false, allowSourceMaps = 
   }
   if (info.artifactRoot === info.root) await collect(info.root)
   else await collect(info.artifactRoot)
+  if (info.artifactRoot !== info.root && info.manifest.backend?.type === 'container') {
+    await collect(join(info.root, 'server'), 'server')
+  }
   if (JSON.stringify((await readManifest(info.root)).manifest) !== JSON.stringify(info.manifest)) {
     throw new Error('manifest 或代码能力契约在打包期间发生变更，请重新运行 proxy-app pack。')
   }
@@ -646,7 +966,7 @@ async function writeProject(root, app) {
   await writeFile(join(root, 'index.html'), '<!doctype html>\n<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Proxy App</title></head><body><main id="app"></main><script type="module" src="/src/main.ts"></script></body></html>\n')
   await writeFile(join(root, 'src', 'agent-tools.mjs'), [
     '// This module is shared by the application and the package builder.',
-    '// Keep it independent of browser state and expose only JSON-serializable metadata.',
+    '// Keep metadata JSON-serializable and keep each handler beside its registry entry.',
     'export const agentMetadata = Object.freeze({',
     '  namespace: ' + JSON.stringify(namespace) + ", targets: ['web', 'desktop'], contract_version: '1.0.0',",
     '  summary: ' + JSON.stringify(app.name + ' 的应用能力') + ', keywords: [' + JSON.stringify(app.name) + '],',
@@ -654,28 +974,28 @@ async function writeProject(root, app) {
     "  examples: 'agent/examples.json',",
     '})',
     '',
-    'export const capabilities = [{',
-    "  name: 'read_metadata', title: '读取应用元数据', description: '读取应用的标识、名称和版本。',",
-    "  access: 'read', idempotent: true, targets: ['web', 'desktop'],",
-    "  input_schema: { type: 'object', properties: {}, required: [], additionalProperties: false },",
-    "  output_schema: { type: 'object', properties: { appId: { type: 'string' }, version: { type: 'string' }, name: { type: 'string' } }, required: ['appId', 'version', 'name'], additionalProperties: false },",
-    '}]',
-    '',
-    'export function capability(name) {',
-    '  const declaration = capabilities.find(item => item.name === name)',
-    "  if (!declaration) throw new Error('Unknown application capability: ' + name)",
-    '  return declaration',
+    'export function registerAgentTools(registry, app) {',
+    "  if (!registry || typeof registry.register !== 'function') throw new TypeError('agent registry must expose register()')",
+    '  const collectOnly = app === undefined',
+    "  if (!collectOnly && (!app || typeof app !== 'object')) throw new TypeError('app metadata is required')",
+    '  const unregister = registry.register({',
+    "    name: 'read_metadata', title: '读取应用元数据', description: '读取应用的标识、名称和版本。',",
+    "    access: 'read', idempotent: true, targets: ['web', 'desktop'],",
+    "    input_schema: { type: 'object', properties: {}, required: [], additionalProperties: false },",
+    "    output_schema: { type: 'object', properties: { appId: { type: 'string' }, version: { type: 'string' }, name: { type: 'string' } }, required: ['appId', 'version', 'name'], additionalProperties: false },",
+    "  }, collectOnly ? undefined : async () => ({ appId: app.id, version: app.version, name: app.name }))",
+    "  return typeof unregister === 'function' ? [unregister] : []",
     '}',
   ].join('\n') + '\n')
-  await writeFile(join(root, 'src', 'agent-tools.d.mts'), `import type { AgentCapabilityDeclaration, AgentContractMetadata } from '@ducking-mind/proxy-app-sdk'\nexport const agentMetadata: AgentContractMetadata\nexport const capabilities: AgentCapabilityDeclaration[]\nexport function capability(name: string): AgentCapabilityDeclaration\n`)
-  await writeFile(join(root, 'src', 'main.ts'), `import { agent, createAppClient } from '@ducking-mind/proxy-app-sdk'\nimport manifest from '../manifest.json'\nimport { capability } from './agent-tools.mjs'\n\nconst client = createAppClient(manifest.id, { runtime: import.meta.env.DEV ? 'local' : undefined, localDevelopment: import.meta.env.DEV, localAppVersion: manifest.version })\nconst root = document.querySelector<HTMLElement>('#app')\nif (root) root.textContent = manifest.name\n\n// Register the same code-owned declaration used to generate the package contract.\nconst unregisterMetadata = agent.register(capability('read_metadata'), () => ({\n  appId: manifest.id,\n  version: manifest.version,\n  name: manifest.name,\n}))\nagent.setStatus({ state: 'ready' }, { scope: 'app', priority: 1 })\nvoid agent.ready()\nvoid client.platform.capabilities().then(console.log)\n\n// Call unregisterMetadata when the feature or application is unmounted.\nvoid unregisterMetadata\n`)
-  await writeFile(join(root, 'vite.config.ts'), "import { defineConfig } from 'vite'\nimport { createPlatformDevProxy } from '@ducking-mind/proxy-app-sdk/vite'\n\nexport default defineConfig({\n  base: './',\n  server: {\n    host: '127.0.0.1',\n    proxy: createPlatformDevProxy(),\n  },\n})\n")
+  await writeFile(join(root, 'src', 'agent-tools.d.mts'), `import type { AgentCapabilityDeclaration, AgentContractMetadata } from '@ducking-mind/proxy-app-sdk'\nexport const agentMetadata: AgentContractMetadata\nexport function registerAgentTools(\n  registry: { register(declaration: AgentCapabilityDeclaration, handler?: ((input: unknown, context: unknown) => unknown) | undefined): (() => void) | undefined },\n  app?: { id: string; version: string; name: string },\n): Array<() => void>\n`)
+  await writeFile(join(root, 'src', 'main.ts'), `import { agent, createAppClient } from '@ducking-mind/proxy-app-sdk'\nimport manifest from '../manifest.json'\nimport { registerAgentTools } from './agent-tools.mjs'\n\nconst client = createAppClient(manifest.id, {\n  runtime: import.meta.env.DEV ? 'local' : undefined,\n  localDevelopment: import.meta.env.DEV,\n  localAppVersion: manifest.version,\n  appVersion: manifest.version,\n  portalURL: import.meta.env.DEV ? (import.meta.env.VITE_PROXY_PORTAL_URL || 'https://www.duckingmind.com') : window.location.origin,\n})\nconst root = document.querySelector<HTMLElement>('#app')\nif (root) root.textContent = manifest.name\n\nconst disposers = registerAgentTools({\n  register(declaration, handler) {\n    if (typeof handler !== 'function') throw new Error('Agent handler is missing: ' + declaration.name)\n    return agent.register(declaration, handler)\n  },\n}, manifest)\nconst unregister = () => disposers.splice(0).reverse().forEach(dispose => dispose())\nif (import.meta.hot) import.meta.hot.dispose(unregister)\nagent.setStatus({ state: 'ready' }, { scope: 'app', priority: 1 })\nvoid agent.ready()\n`)
+  await writeFile(join(root, 'vite.config.ts'), "import { defineConfig } from 'vite'\nimport { createPlatformDevProxy, createPlatformDevSessionPlugin } from '@ducking-mind/proxy-app-sdk/vite'\n\nexport default defineConfig({\n  base: './',\n  plugins: [createPlatformDevSessionPlugin()],\n  server: {\n    host: '127.0.0.1',\n    proxy: createPlatformDevProxy(),\n  },\n})\n")
   await writeFile(join(root, 'tsconfig.json'), JSON.stringify({ compilerOptions: { target: 'ES2022', module: 'ESNext', moduleResolution: 'Bundler', resolveJsonModule: true, strict: true, skipLibCheck: true, lib: ['ES2022', 'DOM', 'DOM.Iterable'], types: ['vite/client', 'node'], noEmit: true }, include: ['src', 'vite.config.ts'] }, null, 2) + '\n')
-  await writeFile(join(root, 'package.json'), JSON.stringify({ name: app.slug.replaceAll('.', '-'), private: true, type: 'module', scripts: { dev: 'proxy-app dev', 'dev:server': 'vite', typecheck: 'tsc --noEmit', build: 'npm run typecheck && vite build' }, dependencies: { '@ducking-mind/proxy-app-sdk': '^0.1.0' }, devDependencies: { [cliPackage.name]: `^${cliPackage.version}`, '@types/node': '^22.18.0', typescript: '^5.2.2', vite: '^8.2.2' }, engines: { node: '>=22.18' } }, null, 2) + '\n')
-  await writeFile(join(root, 'agent', 'guide.md'), `# ${app.name} 能力说明\n\n这是由 “proxy-app init” 生成的能力指南。外部 Codex 通过主应用 MCP 调用能力，应用本身不实现 Agent。\n\n当前提供 “proxy_${namespace}_read_metadata”，用于确认应用 ID、版本和名称。能力定义在 “src/agent-tools.mjs” 中维护，应用使用同一份定义注册处理器；构建命令自动生成发布契约，无需在 manifest 中重复声明能力。\n`)
+  await writeFile(join(root, 'package.json'), JSON.stringify({ name: app.slug.replaceAll('.', '-'), private: true, type: 'module', scripts: { dev: 'proxy-app dev', 'dev:server': 'vite', typecheck: 'tsc --noEmit', build: 'npm run typecheck && vite build' }, dependencies: { '@ducking-mind/proxy-app-sdk': '^0.2.0' }, devDependencies: { [cliPackage.name]: `^${cliPackage.version}`, '@types/node': '^22.18.0', typescript: '^5.2.2', vite: '^8.2.2' }, engines: { node: '>=22.18' } }, null, 2) + '\n')
+  await writeFile(join(root, 'agent', 'guide.md'), `# ${app.name} 能力说明\n\n这是由 “proxy-app init” 生成的能力指南。外部 Codex 通过主应用 MCP 调用能力，应用本身不实现 Agent。\n\n当前提供 “proxy_${namespace}_read_metadata”，用于确认应用 ID、版本和名称。能力契约与处理器在 “src/agent-tools.mjs” 的同一条 registry.register 调用中实现；构建执行注册函数并收集发布目录，无需在 manifest 中重复声明能力。\n`)
   await writeFile(join(root, 'agent', 'workflow.md'), `# 调用流程\n\n1. 先读取应用状态和本指南。\n2. 调用 “proxy_${namespace}_read_metadata” 确认当前版本。\n3. 新增写能力时，先读取业务 revision，并为每次新操作生成唯一 “idempotency_key”。\n4. Web 和私有桌面宿主共用同一套 manifest；仅在能力确实支持时缩小 “targets”。桌面宿主源码和构建流程不属于公开 CLI。\n`)
   await writeFile(join(root, 'agent', 'examples.json'), JSON.stringify([{ capability: 'read_metadata', input: {}, output: { appId: app.slug, version: '0.1.0', name: app.name } }], null, 2) + '\n')
-  await writeFile(join(root, 'README.md'), `# ${app.name}\n\n## 开发\n\n~~~bash\nnpm install\nnpx proxy-app create\nnpm run dev\n~~~\n\n已有平台应用时跳过 create，将 manifest.id 设为平台应用的公开 slug 后直接运行 npm run dev，无需 link 或 repair。启动时会先完成开发者授权与应用检查，再运行开发服务器，不要求手工配置用户 token。底层服务器命令配置在 package.json 的 dev:server 中。\n\n## 能力接入\n\n本项目生成 Web 目标，并保留供私有桌面宿主识别的 “desktop” 兼容目标；公开 CLI 只构建和发布 Web 应用。能力的名称、Schema 和读写属性只在 “src/agent-tools.mjs” 中维护，处理器注册使用同一份定义。源码 manifest 不再声明 Agent 配置；构建会从代码自动生成发布能力目录，请勿手工重复维护。新增能力后同步业务指南和示例，再运行：\n\n~~~bash\nnpx proxy-app validate\nnpx proxy-app pack\n~~~\n\n完整约定见仓库的 [应用开发指南](https://github.com/duckingmind/app/blob/main/docs/APP_DEVELOPMENT.md)。\n`)
+  await writeFile(join(root, 'README.md'), `# ${app.name}\n\n## 开发\n\n~~~bash\nnpm install\nnpx proxy-app create\nnpm run dev\n~~~\n\n已有平台应用时跳过 create，将 manifest.id 设为平台应用的公开 slug 后直接运行 npm run dev，无需 link 或 repair。启动时会先完成开发者授权与应用检查，再运行开发服务器，不要求手工配置用户 token。底层服务器命令配置在 package.json 的 dev:server 中。\n\n## 能力接入\n\n本项目生成 Web 目标，并保留供私有桌面宿主识别的 “desktop” 兼容目标；公开 CLI 只构建和发布 Web 应用。能力契约与处理器必须在 “src/agent-tools.mjs” 的同一条 registry.register 调用中实现；CLI 执行 “registerAgentTools” 并从实际注册路径生成发布目录。不要导出独立能力数组，也不要在源码 manifest 声明 Agent 配置。新增能力后同步业务指南和示例，再运行：\n\n~~~bash\nnpx proxy-app validate\nnpx proxy-app pack\n~~~\n\n完整约定见仓库的 [应用开发指南](https://github.com/duckingmind/app/blob/main/docs/APP_DEVELOPMENT.md)。\n`)
 }
 
 async function replaceIdentifier(root, previous, next) {
@@ -816,6 +1136,10 @@ function reportPendingOpening(app, version) {
 }
 
 async function uploadApp(appDir, output, options = {}) {
+  const local = await readManifest(resolve(appDir))
+  if (local.manifest.backend?.type === 'container') {
+    throw new Error('当前平台尚未支持云端容器后端构建与部署；容器后端版本不会上传。可先运行 proxy-app dev 本地联调。')
+  }
   const { app } = await resolveManagedApp(appDir)
   const { token, baseURL } = apiSettings()
   const bundleInfo = await packApp(appDir, output, { ...options, allowSourceMaps: false })
@@ -836,6 +1160,9 @@ async function publishApp(appDir, output, selectedVersion) {
   // Existing uploaded versions are immutable. Only a new/local draft goes
   // through uploadApp's build; no dist is needed to publish a remote version.
   const info = await readManifest(resolve(appDir))
+  if (info.manifest.backend?.type === 'container') {
+    throw new Error('当前平台尚未支持云端容器后端构建与部署；此应用可通过 proxy-app dev 本地联调，不能 publish。')
+  }
   const targetVersion = selectedVersion || info.manifest.version
   let remoteApp = await developerApp(appDir)
   let version = (remoteApp.versions || []).find((item) => item.version === targetVersion)

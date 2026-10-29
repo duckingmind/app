@@ -13,13 +13,14 @@ export type LocalLoginFailureMessage = {
 }
 
 export type LocalLoginDetails = {
-  /** Non-secret cache partition returned by the authenticated local relay. */
+  /** Non-secret account partition returned by a browser-owned session exchange. */
   account_scope?: string
   login_url?: string
   auth_state?: string
   relay_url?: string
   authenticated?: boolean
-  /** True only when the relay knows that the saved platform login is invalid. */
+  app_session?: AppSession
+  /** True when a fresh Portal login is required before retrying the exchange. */
   force_login?: boolean
 }
 
@@ -103,33 +104,33 @@ export type StorageListResult = {
 }
 
 export type AppClientOptions = {
-  /** Runtime front door. Published pages default to `direct` and use a Portal App Session; `server` is explicit for same-origin Portal pages. */
+  /** Runtime front door. Legacy `server` values use the same direct Gateway transport. */
   runtime?: 'direct' | 'server' | 'local' | 'electron'
-  /** Same-origin server runtime API prefix. Defaults to `/api/app-runtime/v1`. */
-  serverRuntimePath?: string
   /** Optional Electron preload bridge. Usually auto-detected from window.proxyApp. */
   electronHost?: ElectronHostBridge
-  /** Short-lived user session returned by the platform OAuth flow. */
+  /** Short-lived user App Session returned by the Portal login flow. */
   appSession?: AppSession
-  /** Refreshes the user session after an API returns 401 in direct/server runtime. */
+  /** Exact bundle version used when the browser app requests an interactive Portal login. */
+  appVersion?: string
+  /** Obtains or refreshes the browser's user App Session, including initial local cookie exchange. */
   refreshAppSession?: () => Promise<AppSession>
   timeoutMs?: number
-  /** Use the local development runtime started by `proxy-app dev`; never enable in a release build. */
+  /** Use the local development server started by `proxy-app dev`; it still calls Gateway `/v1`. */
   localDevelopment?: boolean
   localAppVersion?: string
   localGatewayPath?: string
-  localAuthPath?: string
-  /** Optional local relay status endpoint used when popup postMessage is unavailable. */
-  localAuthStatusPath?: string
-  localLogoutPath?: string
-  /** Called when the local relay has opened the platform login flow. */
-  onLoginRequired?: (details?: LocalLoginDetails) => void
+  /** Portal origin used by the browser-only local development login flow. */
+  portalURL?: string
 }
 
 export type AppApiStreamEvent<T = unknown> = {
   event?: string
   data: T
 }
+
+/** Same-origin app handler request. Authorization and app version are always SDK-owned. */
+export type AppRuntimeRequestInit = Omit<RequestInit, 'credentials' | 'redirect'>
+export type AppRuntimeStreamEvent<T = unknown> = AppApiStreamEvent<T>
 
 export type AppProfile = {
   id: string

@@ -8,7 +8,7 @@ test('legacy embedded runtime is rejected', () => {
   })
 })
 
-test('a production document defaults to the direct Gateway runtime and uses the Portal handoff', async () => {
+test('a production document defaults to the direct Gateway runtime and uses the Portal login session', async () => {
   const previousWindow = globalThis.window
   const previousFetch = globalThis.fetch
   const previousSessionStorage = globalThis.sessionStorage

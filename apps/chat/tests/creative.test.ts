@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   assetsFromResponse,
+  creativeReferenceTransport,
   imageAspectRatios,
   imageGenerationParameters,
   imageOptions,
@@ -15,6 +16,8 @@ import {
   taskIdFrom,
   taskPath,
   taskStatus,
+  taskCancelPath,
+  voiceIdFrom,
 } from '../src/creative.ts'
 
 test('model catalogs stay separated by the selected creation mode', () => {
@@ -30,6 +33,13 @@ test('model catalogs stay separated by the selected creation mode', () => {
   assert.deepEqual(modelsForMode(catalog, 'image').map((item) => item.id), ['image-model'])
   assert.deepEqual(modelsForMode(catalog, 'video').map((item) => item.id), ['video-model'])
   assert.deepEqual(modelsForMode(catalog, 'music').map((item) => item.id), ['music-model'])
+  assert.deepEqual(modelsForMode(catalog, 'voice').map((item) => item.id), ['minimax-voice-design'])
+})
+
+test('reference transport follows the operation lifetime rather than file size', () => {
+  assert.equal(creativeReferenceTransport('image'), 'operation')
+  assert.equal(creativeReferenceTransport('chat'), 'cos')
+  assert.equal(creativeReferenceTransport('video'), 'cos')
 })
 
 test('model options read declared parameters and safe duration ranges', () => {
@@ -149,9 +159,41 @@ test('media tasks keep durable task identity and parse output assets', () => {
   assert.equal(submissionLookupPath('image', 'key:1'), '/images/by-idempotency-key/key%3A1')
   assert.equal(submissionLookupPath('video', 'stable-key'), '/videos/by-idempotency-key/stable-key')
   assert.equal(submissionLookupPath('music', 'stable-key'), '/music/by-idempotency-key/stable-key')
+  assert.equal(taskPath('voice', 'voice-task'), '/voice-design/tasks/voice-task')
+  assert.equal(taskCancelPath('voice', 'voice-task'), '/voice-design/tasks/voice-task')
+  assert.equal(submissionLookupPath('voice', 'stable-key'), '/voice-design/by-idempotency-key/stable-key')
+  assert.equal(voiceIdFrom({ id: 'voice-task', voice_id: 'voice-1' }), 'voice-1')
 })
 
 test('inline image responses can be shown before durable storage removes their bytes', () => {
   const assets = assetsFromResponse({ data: [{ b64_json: 'YWJj', content_type: 'image/png' }] }, 'image')
   assert.equal(assets[0].url, 'data:image/png;base64,YWJj')
+})
+
+test('nested media task responses restore status, identity, and output assets', () => {
+  const response = {
+    task: {
+      id: 'nested-task-1',
+      status: 'completed',
+      assets: [{ id: 'nested-asset-1', content_url: 'https://cdn.example/result.png', content_type: 'image/png' }],
+    },
+  }
+  assert.equal(taskIdFrom(response), 'nested-task-1')
+  assert.equal(taskStatus(response), 'complete')
+  assert.deepEqual(assetsFromResponse(response, 'image'), [{
+    id: 'nested-asset-1', type: 'image', assetId: 'nested-asset-1', url: 'https://cdn.example/result.png', contentType: 'image/png',
+  }])
+})
+
+test('voice design completion restores its preview asset and durable voice identity', () => {
+  const response = {
+    id: 'voice-task-1', object: 'voice_design_task', status: 'completed', voice_id: 'voice-stable-1',
+    trial_audio: { available: true, asset_id: 'voice-preview-asset', url: 'https://cdn.example/preview.mp3', content_type: 'audio/mpeg' },
+  }
+  assert.equal(taskIdFrom(response), 'voice-task-1')
+  assert.equal(voiceIdFrom(response), 'voice-stable-1')
+  assert.deepEqual(assetsFromResponse(response, 'audio'), [{
+    id: 'voice-preview-asset', type: 'audio', assetId: 'voice-preview-asset',
+    url: 'https://cdn.example/preview.mp3', contentType: 'audio/mpeg',
+  }])
 })

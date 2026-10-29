@@ -39,11 +39,18 @@ export type AgentContractMetadata = {
 }
 
 /** Share this declaration with the build-generated capability catalog. */
-export type AgentCapabilityRegistration = AgentCapabilityDeclaration & { name: string }
+export type AgentCapabilityRegistration = Required<Pick<AgentCapabilityDeclaration, 'name' | 'access' | 'input_schema' | 'output_schema'>>
+  & Omit<AgentCapabilityDeclaration, 'name' | 'access' | 'input_schema' | 'output_schema'>
+export type AgentRuntimeCapabilityRegistration = AgentCapabilityRegistration | {
+  name: string
+  handlerVersion?: number
+  available?: boolean
+}
 export type AgentRuntimeRegistration = {
   appId: string
   version: string
-  capabilities: Array<{ name: string; handlerVersion?: number; available?: boolean }>
+  capabilities: AgentRuntimeCapabilityRegistration[]
+  dynamic?: boolean
 }
 export type AgentInvocationContext = {
   requestId: string
@@ -58,7 +65,7 @@ export type AgentBridge = {
   target?: AgentTarget
   /** False when the renderer has no connection to the main application's MCP host. */
   available?: boolean
-  register(capabilities: AgentCapabilityRegistration[]): Promise<unknown>
+  register(capabilities: AgentRuntimeCapabilityRegistration[]): Promise<unknown>
   setStatus?(status: AgentRuntimeStatus, epoch: string): Promise<unknown>
   onInvoke(listener: (request: WireRequest) => void): () => void
   onCancel(listener: (request: { requestId: string }) => void): () => void

@@ -1,7 +1,7 @@
 # @ducking-mind/proxy-app-sdk
 
 面向 Proxy App 平台应用的 TypeScript SDK，包含公开的应用 KV 用户存储能力。
-SDK 为 server 页面、本地开发、桌面应用和独立 HTTP 集成提供统一客户端。
+SDK 为 Portal 登录获取会话的已发布应用、本地开发、桌面应用和独立 HTTP 集成提供统一客户端。
 
 ## 安装
 
@@ -11,6 +11,95 @@ npm install @ducking-mind/proxy-app-sdk
 
 该软件包包含 ESM JavaScript 和 TypeScript 类型声明。在本仓库中开发时，可使用
 `npm run build` 从源码构建 SDK。
+
+## 无状态应用运行时契约
+
+服务端业务入口的公共契约属于 SDK，而不是 CLI：
+
+```ts
+import type { AppHandler } from '@ducking-mind/proxy-app-sdk'
+
+export const handler: AppHandler = async (request, context) => {
+  return context.platform.request('/responses/stream', {
+    method: 'POST',
+    body: JSON.stringify({ model: 'your-model', input: await request.text(), stream: true }),
+  })
+}
+```
+
+`AppHandler` 是一次性请求函数契约，只接收 Fetch `Request` 和一次请求范围的 `AppRuntimeContext`，通过
+`context.platform.request()` 使用平台允许的 Gateway 路由。身份、App Session、请求编号和
+权限由宿主注入，应用不能从 JSON 或自定义请求头提交这些字段。运行时不得监听端口、启动子进程、
+读取文件系统或把请求状态写入模块级全局变量。
+
+运行时上下文不提供数据库、文件系统或宿主进程能力。Runtime Host 是无状态执行器，每次请求或
+任务尝试都在独立 QuickJS 沙箱中运行，结束后释放。需要读取模型、媒体、KV 或其他平台数据时，
+必须通过 `context.platform.request()` 调用 Gateway 的公开接口；不要把数据库连接、Secret 或内部
+服务地址写入函数代码。
+
+第二类函数是任务函数。平台在任务提交后创建持久 task ID，由 Gateway 负责排队、并发、租约、进度、取消、重试和最终结果；每次 attempt 在独立 Runtime 沙箱中执行，长任务不占住 HTTP handler 的请求连接。每次 attempt 都只调用 `handle()`；业务逻辑必须允许因超时或租约恢复而重复执行。`handle()` 成功返回的值由任务平台持久化为结果，抛出的错误按平台重试策略处理。
+
+SDK 提供 `AppTaskFunction` 的类型契约。任务状态由 Gateway 任务面持久化，`handle` 只负责处理
+本次输入并返回结果：
+
+```ts
+import type { AppTaskFunction } from '@ducking-mind/proxy-app-sdk'
+
+export const taskFunction: AppTaskFunction<{ source: string }, { imported: number }> = {
+  async handle(task, context) {
+    await context.reportProgress({ percent: 10, message: '正在处理' })
+    await context.sleep(1000)
+    return { imported: 1 }
+  },
+}
+```
+
+`context.sleep(milliseconds)` 供长任务在服务端限速轮询时等待；单次最多 60 秒，任务取消或执行时限到达时会中断等待。
+
+CLI 负责开发授权、Vite/构建编排、校验、打包和发布；它不包含 JavaScript 执行引擎。开发时可用
+`createAppRuntimeDevPlugin()` 将同一 handler 挂到现有 Vite server 的 `/api/*` 路由中，不会额外启动
+Node 服务。任务函数在开发和生产都通过 Gateway 的 `/v1/app-runtime/tasks` 执行：`proxy-app dev`
+会把本地 runtime 源码登记为开发者私有草稿函数，Gateway 验证 App Session 后将任务交给私有
+Runtime Host；浏览器不能直接访问 `/internal/runtime/*`，也不会在 Vite 内存中执行任务。
+
+云端调用使用 `app.api.request()` 或 `app.api.stream()`，路径相对于 App Session 返回的 Gateway
+`/v1` 地址：
+
+```ts
+const submitted = await app.api.request<{ task: { id: string; status: string } }>('/app-runtime/tasks', {
+  method: 'POST',
+  body: JSON.stringify({
+    name: 'generate-batch',
+    payload: { productId: 'product_123', count: 20 },
+    idempotency_key: 'design-batch-product_123-v3',
+  }),
+})
+
+const task = await app.api.request(`/app-runtime/tasks/${encodeURIComponent(submitted.task.id)}`)
+await app.api.request(`/app-runtime/tasks/${encodeURIComponent(submitted.task.id)}/cancel`, { method: 'POST' })
+```
+
+一次性函数使用 `POST /app-runtime/request`，请求 envelope 的 `path` 必须匹配发布版本声明的
+`functions.request.routes`；返回 SSE 时使用 `app.api.stream()`：
+
+```ts
+const events = app.api.stream('/app-runtime/request', {
+  method: 'POST',
+  body: JSON.stringify({
+    path: '/api/pelican/generate',
+    method: 'POST',
+    body: JSON.stringify({ prompt: '生成商品图' }),
+  }),
+})
+for await (const event of events) console.log(event.data)
+```
+
+完整 HTTP 契约、身份边界、错误码、大小限制和 Runtime Host 内部接口见
+[`llm-gateway-go/docs/APP_RUNTIME_API.md`](../../llm-gateway-go/docs/APP_RUNTIME_API.md)。
+
+Vite 配置从 `@ducking-mind/proxy-app-sdk/vite-runtime` 引入开发适配器；业务 handler 可以从 SDK
+根入口引入 `AppHandler` 类型，任务入口引入 `AppTaskFunction` 类型。生产构建可以把两个入口分别编译到
+`dist/runtime/handler.js` 和 `dist/runtime/task.js`，供 Runtime Host 按版本加载。
 
 ## 创建客户端
 
@@ -33,9 +122,8 @@ for await (const event of app.api.stream('/responses/stream', {
 `app_...` 稳定 ID。公开 slug 长度为 1–120，规则为 `^[a-z0-9]+(?:[.-][a-z0-9]+)*$`；SDK 不会
 自动添加 `app.proxy.` 前缀。应用使用平台提供的 App Session，并将其附加到获准的数据请求。
 
-公开 slug 不是授权身份。Server 模式先验证平台返回的稳定 `app_id` 和账户范围，再发送业务请求；
-应用改名后，旧包中的 slug 只能通过平台返回的 `app_aliases` 匹配，不能自行去掉前缀猜测映射。
-首次确认稳定 ID 后，后续刷新不会切换到另一个应用。
+公开 slug 不是授权身份。Gateway 通过 App Session 验证稳定 `app_id`；应用改名后，旧包中的
+slug 只能通过 Portal 返回的 `app_aliases` 匹配，不能自行去掉前缀猜测映射。
 
 ## Gateway API
 
@@ -48,7 +136,7 @@ for await (const event of app.api.stream('/responses/stream', {
 - `app.workspaceStorage.*`：访问当前平台已绑定团队工作空间的键值数据，同一团队中的成员共享一份数据。工作空间由 Portal 在启动应用时完成成员、状态和空间类型校验，并绑定到 App Session；应用和前端不能选择、替换或伪造工作空间。团队成员可以读取、写入、批量修改和按版本删除，`getEntry()`/`getEntries()` 同样返回服务端记录的最后写入作者。
 - 公共空间的 `getEntry()`/`getEntries()` 会额外返回服务端解析的 `author.id` 和 `author.name`。作者信息来自写入者的 App Session，应用不得信任 JSON 值内自带的 `userId`、`userName` 字段；普通 `get()`/`getMany()` 仍只返回值。
 - `app.api.request()`：访问已公开的模型、响应、媒体、任务和 KV 路由；`app.api.stream()` 读取已公开的 SSE 路由。
-- `app.user.getProfile()`：读取当前调用用户的最小资料（`id`、`email`、`username`，以及可选的 `avatar_url`）。direct runtime 使用 Gateway `GET /v1/profile`，不需要模型、媒体或 KV scope；本地开发使用 `/__platform/auth/profile`，server runtime 使用同源 `/api/app-runtime/v1/profile`。Gateway 资料接口不会返回余额、手机号、API Key 或其他账户管理字段。
+- `app.user.getProfile()`：读取当前调用用户的最小资料（`id`、`email`、`username`，以及可选的 `avatar_url`）。所有运行环境都使用 Gateway `GET /v1/profile` 和 App Session；不需要模型、媒体或 KV scope。Gateway 资料接口不会返回余额、手机号、API Key 或其他账户管理字段。
 
 `app.notification.show()`、`app.theme.read()`、`app.locale.read()` 和
 `app.platform.capabilities()` 属于宿主控制面 API，当前 SDK 会在发送前拒绝，不会转发到 Admin Runtime。
@@ -120,12 +208,17 @@ SDK 每次调用默认生成新的幂等键。响应丢失后再次调用时，�
 `source_app_id` 和 `system_tags` 由服务端记录，不可提交修改，`app:`、`type:`、`source:` 为保留前缀。
 从资产库移除使用 `PATCH { expected_revision, saved_to_library: false }`，保留媒体文件及画布引用。
 这些路由在 HTTP SDK 与桌面运行时均按明确的方法、路径和单项 ID 白名单开放。
-当前没有手动上传到平台资产库的接口；图片文件可通过 `/images/edits` 的 `FormData` 作为任务参考图
-上传，但不会自动成为资产库条目。独立素材上传尚未开放；不要用 KV 或生成任务模拟上传接口。
+独立素材上传通过 SDK 导出的 `uploadApplicationMediaAsset()` 调用 `POST /media/assets/upload-intents` 获取短期对象存储 PUT 地址，再调用
+`POST /media/assets/{asset_id}/complete` 完成确认；失败时可调用
+`DELETE /media/assets/{asset_id}/upload-intent`。上传意图只接受元数据，文件字节不会经过 Gateway。
+需要长期保存或重复使用的素材请使用 SDK 的 `uploadApplicationMediaAsset()`，图片、视频和音频不按大小切换传输方式。
+客户端必须继续使用同一个幂等键重试；直传接口失败时，SDK 会直接返回错误，不会把文件重新发送到 Gateway 的 multipart 接口。
+对象存储 PUT 或确认失败时不会再把文件字节回传给 Gateway。一次性上游输入应直接提交到对应操作接口，例如图片编辑的 multipart 参考图，不要创建媒体资产。
 
 模型和媒体相关操作请使用 `app.api.request()` 或 `app.api.stream()`。可用路由包括
-模型目录、Responses、chat completions、embeddings、图像生成/编辑以及视频、音乐或音色设计任务
-操作。当前公开路由由平台会话或 API Key 的 scope、账户权益、模型目录和 Gateway 路由策略共同决定；
+模型目录、Responses、chat completions、消息、图像生成/编辑以及视频、音乐或音色设计任务
+操作。向量（`/embeddings`）、TTS 和任务 `/content` 下载路由已经从 Gateway 数据面下线；
+媒体任务完成后使用响应中的 `asset_id` 或签名 `url`，不要拼接历史内容代理地址。当前公开路由由平台会话或 API Key 的 scope、账户权益、模型目录和 Gateway 路由策略共同决定；
 `manifest.apis` 仅用于兼容性描述，不需要逐项声明，也不会额外收窄授权。
 
 `POST /estimates` 可在提交前预估本次请求费用，参数为
@@ -151,8 +244,7 @@ Gateway-only 是平台架构约束，不是 manifest 字段或 SDK 选项；应�
 const app = createAppClient('com.example.my-app')
 ```
 
-生产页面默认使用 `direct` 运行时：SDK 从 Portal 交接到当前标签页的 App Session，直接调用该会话的 Gateway。
-本地开发仍应使用 CLI 提供的 `local` 运行时；只有由 Portal 同源输出、并由 HttpOnly Cookie 托管会话的页面才应显式选择 `server`。
+生产页面默认使用 `direct` 运行时：页面在 Portal 登录后，通过 HttpOnly 设备 Cookie 换取绑定当前应用及发布版本的 App Session，再交给当前标签页使用。本地开发仍使用 CLI 提供的 `local` SDK 模式和 Vite `/v1` 代理；用户通过 Portal 登录弹窗取得绑定草稿版本的 App Session。CLI 只缓存开发者授权并登记本地草稿，不接触运行用户会话；Vite 只代理 Gateway 数据请求。这里的 `local` 不选择函数执行位置。`functions.task` 在本地开发和发布环境都通过 Gateway 持久化并派发给 Runtime Host。
 
 对于独立集成，请提供通过平台会话流程获取的 App Session 以及刷新回调：
 
@@ -164,29 +256,20 @@ const app = createAppClient('com.example.my-app', {
 })
 ```
 
-由 Portal 直接输出 `index.html` 的应用使用 `server` 运行时。Portal 会把短期
-App Session 保存在同源 HttpOnly Cookie 中，SDK 只读取公开的会话元数据，应用脚本不会接触
-`ast_` 凭证：
+旧版本使用的 `server` 选项会兼容为 `direct`。可信的 Portal 集成应通过浏览器 Cookie 换票流程获取 App Session，再把它交给应用：
 
 ```ts
-const app = createAppClient('com.example.my-app', { runtime: 'server' })
+const app = createAppClient('com.example.my-app', { runtime: 'direct', appSession })
 ```
 
-模型、媒体和 KV 请求会分别通过同源的 `/api/app-runtime/v1/gateway` 和
-`/api/app-runtime/v1` 路径发送，并自动携带 Cookie。发布页面不应把 `Authorization` 令牌写入
-应用代码、URL 或本地存储。
-
-`server` 会在首次业务请求前读取会话元数据，绑定稳定应用 ID 和账户范围；之后每次请求携带
-`X-App-Account-Scope`，不能静默切换到另一个标签页的账户。刷新失败仅对临时网络/服务故障做
-有次数上限的退避重试，页面恢复可见、联网后会重新检查。业务请求仍然只在平台明确表示
-`APP_SESSION_EXPIRED` 且 `execution_started: false` 时刷新并重试一次。
+模型、媒体和 KV 请求都通过 App Session 的 Gateway `/v1` 地址发送，并在
+`Authorization` 头中携带 bearer token。App Session 仅保存在当前标签页的会话存储中，不写入 URL
+或持久化浏览器存储。
 
 账户切换、退出或不可恢复的授权失效会停止当前客户端，并发送 `proxy-app:session-ended`
 窗口事件，`detail` 包含 `appId`、`accountScope`、`code`、`message`。应用应暂停旧账户的同步，
-保留草稿，再由用户明确点击恢复。`app.auth.recoveryMode === 'redirect'` 时调用
-`app.auth.login()` 会返回同源 Portal 启动页，并携带当前画布片段路由；它不会自动重放生成任务。
-`app.auth.logout()` 会撤销当前服务端应用会话，而不是仅清除页面状态。本地/桌面登录为
-`login`，原 `loginMode` 字段保持兼容。
+保留草稿，再提示用户重新通过 Portal 登录。网页应用使用 `app.auth.login()` 打开 Portal 登录弹窗，不访问 `/auth/*`；Portal Cookie 不会交给应用，App Session 只保存在当前标签页。Portal 登出会撤销当前标签页的应用会话并清除其会话数据。桌面登录由 Electron 宿主处理，
+原 `loginMode` 字段保持兼容。
 
 直接集成只使用 App Session 的 `gateway_url`；SDK 会把业务相对路径拼接到 Gateway `/v1`。
 应用代码不应配置或硬编码 Admin Runtime 或其他平台私有路径。
@@ -202,14 +285,14 @@ Content-Type: application/json
 
 HTTP 请求使用 `expected_revision`，SDK 参数使用 `expectedRevision`；HTTP 响应的 `updated_at`
 和 `next_cursor` 由 SDK 转换为 `updatedAt` 和 `nextCursor`。应用静态资源域名不一定是平台 API
-域名；本地开发代理会为同一路径附加会话，无需在应用里配置发布令牌。完整的资源表、curl 示例和响应结构见
+域名；本地开发时，Vite 将 `/v1` 透明转发到配置的 Gateway，SDK 将 App Session bearer 原样发送给 Gateway。无需配置发布令牌。完整的资源表、curl 示例和响应结构见
 [API 参考](https://github.com/duckingmind/app/blob/main/docs/API_REFERENCE.md#通用应用-kv-存储)。
 
 直接 HTTP 写入可附加 `Idempotency-Key` 请求头；SDK 的 `getEntries(keys)` 复用批量读取接口，
 对应 `GET /storage/items?keys=...&keys=...&include_metadata=true`。
 
-只有当平台明确报告 App Session 在执行前已过期时，SDK 才会刷新并重试。其他认证错误
-会直接返回给调用方。需要主动刷新会话时，请调用 `app.platform.createSession()`。
+只有当平台明确报告 App Session 在执行前已过期时，SDK 才会通过应用提供的 `refreshAppSession`
+回调刷新并重试。其他认证错误会直接返回给调用方。`app.platform.createSession()` 使用 Portal 已签发的会话并在本地检查有效期与账户分区，不额外发送 Gateway 预检请求；真实数据请求会直接携带 App Session，由 Gateway 验证。需要主动查询服务端登录状态时，再调用 `app.auth.status()`。
 
 ## 本地开发
 
@@ -235,23 +318,16 @@ CLI 先完成开发者授权，按 `manifest.id` 的公开 slug 解析平台应�
 不需要 `.proxy-app.json`、`repair` 或手工配置用户 token；内部应用 ID 由平台返回并只在代理进程内使用。
 首次缺少开发授权时，从终端给出的链接完成授权；slug、开发权限或版本冲突会在启动前报错。
 如果缓存的开发账户无权访问应用，CLI 会自动清除开发授权并在下一次 `proxy-app dev <app-directory>` 启动时请求新的创建者授权。
-页面启动时使用 `app.auth.status()` 检查已有运行用户授权，不会主动弹出登录窗口。
+页面启动时使用 `app.platform.createSession()` 读取 Portal 已交接的 App Session；没有可用会话时由应用展示登录入口，不会在后台擅自打开弹窗。应用请求直接带会话访问 Gateway，Gateway 对每个真实请求执行认证与授权。
 返回的 `accountScope` 是平台、应用与账号共同确定的不透明缓存分区标识，不是凭证，也不需要
 先读取用户资料才能获得。`accountScope` 在会话刷新、应用升级后保持稳定，适合为 IndexedDB、草稿和媒体缓存
 分区。账号标识变化时应停止旧操作、重新挂载工作区；不应把旧账号缓存自动同步给新账号。
-旧会话缺少该字段时，SDK/宿主会尝试补全平台会话信息或刷新一次 App Session，不主动打开登录窗口。
+旧会话缺少该字段时，SDK/宿主会尝试补全平台会话信息或通过回调刷新一次 App Session，不主动打开登录窗口。
 刷新后仍缺失或格式无效，会抛出 `APP_ACCOUNT_SCOPE_UNAVAILABLE`；应用应保留工作区并提示检查平台/宿主版本，不能使用共享默认分区。
-恢复交互优先读取 `app.auth.recoveryMode`：`login` 为本地/桌面登录，`redirect` 为服务器应用返回平台恢复，均可由用户点击调用 `auth.login()`。旧 `loginMode` 字段保持兼容。
-`app.platform.createSession()` 在网页宿主/直连模式刷新会话，在本地开发/桌面模式委托持有凭证的宿主校验和恢复会话，仅返回公开状态与元数据。
-有授权时恢复应用数据，无授权时显示连接按钮，由用户操作调用 `app.auth.login()`。
-普通连接会复用有效的平台登录；只有凭证失效或显式调用
-`app.auth.login({ forceLogin: true })` 才要求重新登录。切换账号后应重新加载该账号的作品和偏好。
+恢复交互优先读取 `app.auth.recoveryMode`：网页应用通过 Portal 登录弹窗获取 App Session；桌面应用的登录由受信任的宿主处理。旧 `loginMode` 字段保持兼容。`app.platform.createSession()` 在网页运行时使用当前标签页已有的会话，必要时由应用提供的 `refreshAppSession` 回调在 Portal 换票；本地开发和生产浏览器使用同一 Portal 流程。Vite 只代理 Gateway `/v1`，不会开放平台认证或运行时转发。Portal 的 HttpOnly 设备 Cookie 不对应用代码开放；通常由 Portal 登录响应设置 Cookie，缺失时 Portal 会签发新 Cookie 后重试换取 App Session。
+有授权时恢复应用数据，无授权时显示重新打开/重试按钮。Canvas 通过普通业务请求恢复模型、作品与账户资料；会话过期或撤销时由 Gateway 响应触发重新登录。切换账号后应重新打开应用并重新加载该账号的作品和偏好。
 
-macOS 上 CLI 使用独立的钥匙串条目保存开发者授权与运行用户授权，支持开发服务重启后恢复；App Session
-仍是仅存于进程内存的短期会话。`app.auth.logout()` 只清除运行用户授权和当前会话。
-应用内登录、恢复授权和切换用户不会重新登记应用，也不影响开发者授权。
-其他系统或钥匙串不可用时退回进程内存；`proxy-app dev <app-directory> --no-auth-cache`
-可禁用两类持久缓存。发布构建中不要启用本地开发选项。
+macOS 上 CLI 仅使用钥匙串保存开发者授权。Portal 管理 HttpOnly 设备 Cookie；App Session 由浏览器保存在当前标签页的 `sessionStorage`。`app.auth.logout()` 只清除当前标签页会话，不会退出 Portal。本地开发和已发布应用都通过 Portal 登录获取 App Session。其他系统或钥匙串不可用时，CLI 只在进程内保存开发者授权；`proxy-app dev <app-directory> --no-auth-cache` 可禁用该持久缓存。发布构建中不要启用本地开发选项。
 
 `auth.status()` 会对网络或代理配置错误抛出 `AppSdkError`（网络断开也可能是 fetch 错误）；
 不要把这些故障当成“未登录”。账号认证与模型、作品加载状态应独立处理，资源失败可以单独重试。

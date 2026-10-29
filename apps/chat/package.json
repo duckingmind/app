@@ -1,22 +1,24 @@
 {
   "name": "proxy-chat-app",
+  "version": "0.0.4",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node ../../cli/proxy-app.mjs dev .",
+    "dev": "proxy-app dev .",
     "typecheck": "tsc --noEmit",
-    "build": "npm run typecheck && vite build && node ../../cli/agent-contract.mjs . dist",
+    "build": "npm run typecheck && vite build && proxy-agent-contract . dist",
     "dev:server": "vite",
-    "validate": "node ../../cli/proxy-app.mjs validate .",
-    "pack": "node ../../cli/proxy-app.mjs pack --output dist/chat.zip",
+    "validate": "proxy-app validate .",
+    "pack": "proxy-app pack --output dist/chat.zip",
     "test": "node --experimental-strip-types --test tests/*.test.ts"
   },
   "dependencies": {
-    "@ducking-mind/proxy-app-sdk": "^0.1.0",
+    "@ducking-mind/proxy-app-sdk": "^0.2.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
+    "@ducking-mind/proxy-app-cli": "^0.2.0",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "@vitejs/plugin-react": "^6.1.1",

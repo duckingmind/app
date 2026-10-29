@@ -72,6 +72,8 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); o
 .app-select-option-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #94a59e; font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .generate-button { height: 42px; padding: 0 18px; border-radius: 9px; background: var(--ink); color: #fff; display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .generate-button:hover { background: #24403a; }
+.generate-button.cancel { background: #8f4c3d; }
+.generate-button.cancel:hover { background: #743d31; }
 .spin { animation: spin 1s linear infinite; }
 .toast { position: fixed; top: 18px; right: 20px; z-index: 50; width: min(460px, calc(100vw - 40px)); display: flex; align-items: flex-start; gap: 10px; padding: 13px 14px; border: 1px solid; border-radius: 12px; box-shadow: 0 16px 34px rgba(26,54,47,.16); font-size: 13px; animation: toast-in .18s ease-out; }
 .toast-error { background: #fff3ef; border-color: #f0cfc5; color: #994937; }
@@ -107,6 +109,21 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); o
 .gallery-preview iframe { display: block; width: 100%; height: 100%; border: 0; background: #fff; }
 .gallery-preview-empty { height: 100%; display: grid; place-content: center; justify-items: center; gap: 9px; padding: 16px; color: #91a29a; font-size: 11px; text-align: center; }
 .gallery-preview-empty svg { color: #b2c5be; }
+.gallery-task-card { border-style: dashed; border-color: #b9cec3; background: #fbfdfb; }
+.task-preview { position: relative; display: grid; place-items: center; overflow: hidden; background: radial-gradient(ellipse at 50% 45%, #fff 0, #eef7f1 53%, #e8f1ec 100%); }
+.task-preview::before, .task-preview::after { content: ""; position: absolute; width: 150px; height: 150px; border: 1px solid rgba(93,145,119,.11); border-radius: 50%; animation: task-orbit 8s linear infinite; }
+.task-preview::after { width: 220px; height: 220px; animation-direction: reverse; animation-duration: 13s; }
+.task-preview-art { position: relative; width: 92px; height: 76px; display: grid; place-items: center; color: #549875; }
+.task-preview-art span { position: absolute; display: block; border: 1px solid #cfe3d6; border-radius: 50%; background: rgba(255,255,255,.75); }
+.task-preview-art span:nth-child(1) { width: 48px; height: 48px; left: 3px; bottom: 3px; }
+.task-preview-art span:nth-child(2) { width: 33px; height: 33px; right: 3px; top: 2px; }
+.task-preview-art span:nth-child(3) { width: 20px; height: 20px; right: 7px; bottom: 2px; }
+.task-preview-art svg { position: relative; filter: drop-shadow(0 3px 6px rgba(64,122,91,.18)); }
+.task-preview-status { position: absolute; z-index: 1; bottom: 54px; display: flex; align-items: center; gap: 7px; color: #4c7c64; font-size: 11px; font-weight: 600; }
+.task-progress { position: absolute; z-index: 1; bottom: 35px; width: min(58%, 190px); height: 4px; overflow: hidden; border-radius: 99px; background: #dbe9df; }
+.task-progress > span { display: block; height: 100%; border-radius: inherit; background: #67a883; transition: width .3s ease; }
+.task-progress.is-indeterminate > span { width: 36%; height: 100%; border-radius: inherit; background: #67a883; animation: task-progress 1.25s ease-in-out infinite; }
+.gallery-meta.task-meta strong { overflow: visible; white-space: normal; line-height: 1.5; }
 .gallery-meta { display: grid; gap: 5px; padding: 12px 13px 9px; }
 .gallery-meta strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .gallery-meta strong small { color: #83958e; font-size: 10px; font-weight: 400; }
@@ -117,8 +134,11 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); o
 .gallery-actions button:last-child { padding: 8px; color: #a16e62; }
 .gallery-empty { min-height: 150px; margin-top: 18px; border: 1px dashed #cadbd4; border-radius: 10px; }
 footer { color: #91a09a; font-size: 11px; display: flex; align-items: center; gap: 7px; padding: 17px 2px 0; }
+.runtime-mode { margin-left: auto; color: #71877e; font-size: 10px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes pulse { 50% { opacity: .35; } }
+@keyframes task-orbit { to { transform: rotate(360deg); } }
+@keyframes task-progress { from { transform: translateX(-110%); } to { transform: translateX(280%); } }
 @media (max-width: 860px) {
   .intro { display: block; }
   .intro-badge { display: inline-flex; margin-top: 18px; }

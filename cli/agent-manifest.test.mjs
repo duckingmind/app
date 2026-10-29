@@ -24,7 +24,12 @@ test('CLI builds and packages declared guides, and validate checks artifact refe
   await mkdir(join(root, 'src'))
   await mkdir(join(root, 'agent'))
   await writeFile(join(root, 'manifest.json'), JSON.stringify(manifest))
-  await writeFile(join(root, 'src/agent-tools.mjs'), `export const agentMetadata = ${JSON.stringify({ namespace: 'guide_fixture', targets: ['web', 'desktop'], contract_version: '1.0.0', summary: 'Read fixture values.', keywords: ['fixture'], guide: { entry: 'agent/guide.md' }, examples: 'agent/examples.json' })}\nexport const capabilities = ${JSON.stringify([{ name: 'read_value', access: 'read', input_schema: { type: 'object', additionalProperties: false }, output_schema: { type: 'object', properties: { value: { type: 'string' } }, required: ['value'], additionalProperties: false } }])}`)
+  await writeFile(join(root, 'src/agent-tools.mjs'), `export const agentMetadata = ${JSON.stringify({ namespace: 'guide_fixture', targets: ['web', 'desktop'], contract_version: '1.0.0', summary: 'Read fixture values.', keywords: ['fixture'], guide: { entry: 'agent/guide.md' }, examples: 'agent/examples.json' })}
+export function registerAgentTools(registry, runtime) {
+  const collectOnly = runtime === undefined
+  const dispose = registry.register({ name: 'read_value', access: 'read', input_schema: { type: 'object', additionalProperties: false }, output_schema: { type: 'object', properties: { value: { type: 'string' } }, required: ['value'], additionalProperties: false } }, collectOnly ? undefined : async () => ({ value: runtime.value }))
+  return typeof dispose === 'function' ? [dispose] : []
+}`)
   await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'guide-fixture', private: true, type: 'module', scripts: { build: 'node build.mjs' } }))
   await writeFile(join(root, 'build.mjs'), "import {mkdir,writeFile} from 'node:fs/promises'; await mkdir('dist'); await writeFile('dist/index.html','<!doctype html><title>Fixture</title>');")
   await writeFile(join(root, 'agent/guide.md'), '# Guide\nRead state before editing.\n')
@@ -46,7 +51,7 @@ test('published CLI includes shared agent validation without a sibling desktop c
   t.after(() => rm(root, { recursive: true, force: true }))
   const cliRoot = new URL('./', import.meta.url).pathname
   await exec(process.execPath, [join(cliRoot, 'prepare-agent-runtime.mjs')])
-  for (const file of ['proxy-app.mjs', 'platform-settings.mjs', 'local-dev-relay.mjs', 'local-dev-credentials.mjs', 'artifact-security.mjs', 'agent-contract.mjs']) await cp(join(cliRoot, file), join(root, file))
+  for (const file of ['proxy-app.mjs', 'backend-container.mjs', 'platform-settings.mjs', 'local-dev-relay.mjs', 'local-dev-credentials.mjs', 'runtime-sources.mjs', 'artifact-security.mjs', 'agent-contract.mjs']) await cp(join(cliRoot, file), join(root, file))
   await cp(join(cliRoot, 'agent-runtime'), join(root, 'agent-runtime'), { recursive: true })
   await symlink(new URL('../node_modules/', import.meta.url).pathname, join(root, 'node_modules'))
   const fixture = join(root, 'fixture')
@@ -59,6 +64,8 @@ test('published CLI includes shared agent validation without a sibling desktop c
   assert.ok(pkg.files.includes('agent-runtime/package-guide.mjs'))
   assert.equal(pkg.files.includes('agent-runtime/runtime-status.mjs'), false)
   assert.ok(pkg.files.includes('agent-contract.mjs'))
+  assert.ok(pkg.files.includes('backend-container.mjs'))
+  assert.ok(pkg.files.includes('runtime-sources.mjs'))
 })
 
 test('public CLI contract package does not expose private host execution helpers', async () => {

@@ -31,9 +31,9 @@ function credentialAccount({ baseURL, portalURL, appID, projectPath, purpose }) 
   const identity = [
     normalizeURL(baseURL), normalizeURL(portalURL || baseURL), appID.trim(), project,
   ]
-  // Keep existing runtime cache identities intact. Developer authorization is
-  // a separate capability and must survive an app user's logout/account switch.
-  if (purpose === 'development') identity.push('development')
+  // Deliberately isolate developer authorization from any older runtime
+  // credential entries that may remain in the OS keychain.
+  identity.push('development')
   return createHash('sha256').update(JSON.stringify(identity)).digest('hex')
 }
 
@@ -92,13 +92,13 @@ function runSecurityCommand(file, args, { input = '', timeoutMs }) {
  */
 export function createLocalCredentialStore({
   baseURL, portalURL = '', appID, projectPath,
-  purpose = 'runtime',
+  purpose = 'development',
   platform = process.platform,
   runCommand = runSecurityCommand,
   timeoutMs = TIMEOUT_MS,
   stateDirectory = join(homedir(), 'Library', 'Caches', 'proxy-app', 'credentials'),
 }) {
-  if (!['runtime', 'development'].includes(purpose)) throw new Error('未知的授权缓存用途。')
+  if (purpose !== 'development') throw new Error('本地凭证缓存只支持开发者授权。')
   const account = credentialAccount({ baseURL, portalURL, appID, projectPath, purpose })
   const markerPath = join(stateDirectory, account + '.disabled')
   const boundedTimeout = Number.isFinite(timeoutMs) ? Math.max(1, Math.min(timeoutMs, TIMEOUT_MS)) : TIMEOUT_MS

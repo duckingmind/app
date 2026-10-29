@@ -8,7 +8,6 @@
     "cli",
     "proxy-app-sdk",
     "apps/chat",
-    "apps/design",
     "apps/pelican"
   ],
   "scripts": {

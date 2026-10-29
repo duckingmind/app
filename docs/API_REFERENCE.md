@@ -22,14 +22,14 @@ await app.storage.delete('draft')
 
 `storage.user` 按应用和当前用户隔离保存 JSON 数据。请使用稳定、简短的键名，并处理空值、登录失败和权限不足等情况。
 
-应用可使用 `const profile = await app.user.getProfile()` 读取 Gateway `GET /v1/profile`。返回当前凭证绑定用户的 `id`、`email`、`username` 和可选的 `avatar_url`，不要求模型、媒体或 KV scope，也不消耗模型额度。本地开发使用 `/__platform/auth/profile` 中继；server runtime 使用同源 `/api/app-runtime/v1/profile`。宿主控制面能力（例如 `app.platform.capabilities()`）不属于公开 Gateway 能力。
+应用可使用 `const profile = await app.user.getProfile()` 读取 Gateway `GET /v1/profile`。返回当前凭证绑定用户的 `id`、`email`、`username` 和可选的 `avatar_url`，不要求模型、媒体或 KV scope，也不消耗模型额度。本地开发和已发布应用都由 SDK 使用 App Session 直接请求 Gateway；宿主控制面能力（例如 `app.platform.capabilities()`）不属于公开 Gateway 能力。
 
 `await app.auth.status()` 返回 `{ authenticated, accountScope? }`。`accountScope` 是不含凭证的
 平台、应用、账号分区标识，同一账号刷新会话和升级应用后保持不变。应用应以它隔离 IndexedDB、
 草稿、媒体缓存与当前工作区；标识变化时先停止旧请求，再加载新分区。不要把旧缓存自动导入新账号。
 已登录的旧会话缺少该字段时，SDK/宿主会先尝试补全会话信息或有界刷新一次。仍缺失时抛出
 `APP_ACCOUNT_SCOPE_UNAVAILABLE`，此时不能使用共享默认分区继续自动云同步；应提示检查平台/宿主。
-`app.auth.loginMode` 为 `app`（本地/桌面）或 `host`（网页宿主/直连）；后者需在平台完成登录并重新打开应用，应用内提供状态重试即可。
+网页应用的 `app.auth.loginMode` 为 `host`：用户在平台入口完成登录并打开应用，应用只提供状态检查和重试，不发起浏览器登录请求。桌面应用的登录由受信任的 Electron 宿主处理，浏览器应用不会访问 `/auth/*`。
 该标识不是鉴权凭据；服务器签名密钥或平台公开地址变更可能产生新分区，云端数据不因此删除。
 
 ## 通用应用 KV 存储
@@ -135,8 +135,9 @@ Canvas 使用两个后端平面。平台源地址和模型数据网关不是同�
 
 | 能力 | 请求根地址（生产） | 鉴权 | 服务职责 |
 | --- | --- | --- | --- |
-| Portal、应用市场、安装、授权和创建 App Session | `https://www.duckingmind.com/api/...` | 平台登录会话或 Portal Bearer Token | `codex-admin-api` 控制面 |
-| 宿主控制面：Profile、Capabilities、Preferences | 仅由受信任的宿主内部访问 | 宿主持有的用户会话 | 宿主控制面，不属于应用 Gateway 数据面 |
+| Portal、应用市场、安装、授权和创建 App Session | `https://www.duckingmind.com/api/...` | Portal 页面使用登录 Cookie；应用会话换票使用 HttpOnly 设备 Cookie | `codex-admin-api` 控制面 |
+| 应用身份预检 | `https://api.example.com/v1/profile` | `Bearer ast_*` App Session | `llm-gateway` 数据面；应用不访问 `/auth/*` 或宿主控制面 |
+| 应用函数请求和任务 | Session 的 `gateway_url` 下的 `/v1/app-runtime/*` | `Bearer ast_...` App Session | `codex-llm-gateway` → 私有 Runtime Host |
 | 用户 KV Storage | Session 的 `gateway_url` 下的 `/v1/storage/*` | `Bearer ast_...` App Session 或用户 API Key | `codex-llm-gateway` |
 | 模型、图片、视频、响应流和媒体资产 | Session 返回的 `gateway_url`，当前为 `https://api.duckingmind.com/v1` | `Bearer ast_...` App Session | `codex-llm-gateway` 数据面 |
 
@@ -149,6 +150,20 @@ Canvas 使用两个后端平面。平台源地址和模型数据网关不是同�
 
 - `/v1/storage/*` 是 Gateway 的 KV 接口。App Session 访问应用隔离空间；普通用户 API Key 访问独立的用户空间；两种命名空间不会串读；
 - `/v1/media/storage/usage` 是媒体文件空间用量，属于 Gateway 媒体数据面，使用 `client.api` 调用。
+
+应用函数使用同一个 Gateway 数据面凭证：
+
+```text
+POST /v1/app-runtime/request
+POST /v1/app-runtime/tasks
+GET  /v1/app-runtime/tasks/{id}
+POST /v1/app-runtime/tasks/{id}/cancel
+```
+
+`app_id`、`app_version` 和 `user_id` 由 Gateway 从 `ast_*` App Session 推导，应用请求不能
+自行提交或覆盖。一次性函数的输入输出、任务状态、幂等键和错误处理见
+[`应用运行时开发接口`](../../llm-gateway-go/docs/APP_RUNTIME_API.md)。旧的 Admin
+`/api/app-runtime/v1/*` 业务代理已下线。
 
 SDK 已按上述边界路由请求：`app.storage.*` 使用 `session.gateway_url` 下的 Gateway 路径，
 `app.api.request(...)` 和 `app.api.stream(...)` 也使用 `session.gateway_url`。应用同源时可以使用相对路径；
@@ -432,12 +447,12 @@ const result = await app.api.request('/responses', {
   }),
 })
 
-const video = await app.api.request<Blob>('/videos/task-id/content', {
-  responseType: 'blob',
-})
+// 任务完成后使用响应中的 asset_id，并从媒体资产接口获取短期签名 URL。
+const asset = await app.api.request('/media/assets/asset-id')
+const video = await fetch(asset.url)
 ```
 
-支持的请求类型包括模型目录、文本生成、消息生成、向量、图片生成与编辑、视频、音乐、音色设计和语音合成任务。实际模型与操作范围取决于用户账户权益、模型目录和 Gateway 路由策略；App Session scope 当前不对已 allow-list 的接口逐项限权，`manifest.apis` 用于兼容性描述。应用不能指定上游服务商，也不能提交服务商凭证。
+支持的请求类型包括模型目录、文本生成、消息生成、图片生成与编辑、视频、音乐和音色设计任务。`/embeddings`、TTS 以及视频、音乐、音色的历史 `/content` 代理不属于当前 Gateway 数据面；媒体完成后使用 `asset_id` 或服务端返回的短期签名 URL。实际模型与操作范围取决于用户账户权益、模型目录和 Gateway 路由策略；App Session scope 当前不对已 allow-list 的接口逐项限权，`manifest.apis` 用于兼容性描述。应用不能指定上游服务商，也不能提交服务商凭证。
 
 视频创建响应丢失时，可用 `GET /videos/by-idempotency-key/{key}` 只读查找原任务，
 无需重新上传参考图。`key` 是创建时发送的原始 `Idempotency-Key`，支持 1–128 位
@@ -452,7 +467,7 @@ const video = await app.api.request<Blob>('/videos/task-id/content', {
 响应包含稳定 `asset_id`，以及可能过期的 `content_url`；重新打开画布后应通过任务接口或
 `GET /media/assets/{id}` 获取新的交付地址，不能把签名 URL 永久写入 KV。
 
-音色设计与语音合成是独立流程。音色设计返回可复用的 `voice_id` 和试听音频，再用该 ID 创建 TTS 任务：
+音色设计是当前公开的音频能力。它返回可复用的 `voice_id` 和试听资产；平台当前不提供 TTS 创建、查询、取消或内容下载路由：
 
 ```ts
 const voices = await app.api.request('/voice-design/models')
@@ -462,18 +477,9 @@ const voice = await app.api.request('/voice-design/generations', {
   body: JSON.stringify({ model: 'minimax-voice-design', prompt: '温暖清晰的青年声音', preview_text: '你好，欢迎来到创作空间。' }),
 })
 // 轮询 voice-design/tasks/{id}，成功后保存结果中的 voice_id。
-const speechModels = await app.api.request('/tts/models')
-const speech = await app.api.request('/tts/generations', {
-  method: 'POST',
-  headers: { 'Idempotency-Key': crypto.randomUUID() },
-  body: JSON.stringify({ model: 'minimax-speech-2.8-hd', text: '今天的旅程正式开始。', voice_setting: { voice_id: savedVoiceId }, audio_setting: { format: 'mp3' } }),
-})
-const result = await app.api.request(`/tts/tasks/${speech.id}`)
-// 等待 result.status 为 completed 后读取。
-const audio = await app.api.request<Blob>(`/tts/tasks/${speech.id}/content`, { responseType: 'blob' })
 ```
 
-音色设计和 TTS 都支持 `GET /{voice-design|tts}/by-idempotency-key/{key}` 找回原任务，以及 `DELETE /{voice-design|tts}/tasks/{id}` 请求取消；重试须保留原始幂等键。平台生成的音色只会路由到原 MiniMax 供应商账号的 TTS 渠道，账号或连接身份变更时返回 `voice_binding_unavailable`。应用应保留原音色 ID 并提示联系供应商管理员，不能改用其他账号盲目重试。模型目录返回 `available`、`supply_status` 和 `output_formats`，创建前应检查所选模型的供给和格式能力。
+音色设计支持按幂等键找回任务和取消；完成任务返回的试听资源使用 `asset_id` 或签名 URL。历史 TTS 数据仅用于内部审计，不能通过通用 SDK 重新提交或下载。
 
 图片同步创建遇到连接中断时，服务可能返回 `202` 和 `status: "unknown"`，并附带
 `task_id`、`polling_url`、`reconciliation_state: "pending"`。应用应保存任务标识并通过
@@ -490,14 +496,19 @@ const audio = await app.api.request<Blob>(`/tts/tasks/${speech.id}/content`, { r
 当前应用和用户范围内的资产；这些接口需要 `platform.images.read` 权限。资产列表中的 `url` 是
 短期地址，不能写入 KV 作为永久链接，过期后应重新读取列表或任务结果。
 
-当前没有 `POST /v1/media/assets` 手动上传接口。用户上传的图片可以作为
-`POST /v1/images/edits` 的 `multipart/form-data` 参考图参与任务，但原始输入不会因此成为可单独
-管理的资产。独立素材上传尚未开放，需在统一媒体资产模块中实现；
-不要用生成任务模拟上传，也不要把文件或 Base64 内容写入 KV。
+应用可以使用 SDK 的 `uploadApplicationMediaAsset()` 保存需要长期恢复或重复使用的图片、视频或音频，文件最大 100 MiB。
+SDK 通过 `POST /media/assets/upload-intents` 获取短期对象存储 PUT 地址，再确认上传；只有旧 Gateway 明确没有直传路由时才兼容 multipart。
+COS 或确认服务故障不会让 SDK 把文件再发一次到 Gateway。响应返回稳定的资产 `id` 和短期 `url`；应用应保存 `id`，预览或复用时通过
+`GET /media/assets/{id}` 刷新地址，不要把文件或 Base64 内容写入 KV。只供一次上游请求使用的图片编辑参考图可直接以 multipart 发送到
+`POST /v1/images/edits`，无需先创建可复用媒体资产。
 
 | 请求 | 说明 |
 | --- | --- |
 | `GET /v1/media/storage/usage` | 查询媒体空间用量：`used_bytes`、`reserved_bytes`、`quota_bytes`、`available_bytes`、`status`。用量是用户配额汇总，资产访问仍按应用隔离。 |
+| `POST /v1/media/assets/upload-intents` | 为持久化媒体申请对象存储直传意图，仅提交文件元数据。 |
+| `PUT upload_url` | 将媒体字节直接上传至短期签名的对象存储地址。 |
+| `POST /v1/media/assets/{id}/complete` | 验证对象元数据并完成资产托管。 |
+| `POST /v1/media/assets` | 兼容未提供直传路由的旧 Gateway multipart 上传。 |
 | `GET /v1/media/assets?page=1&limit=20` | 分页列出当前应用和用户的已保存资产，返回 `items`、`total`、`page`、`limit`。 |
 | `DELETE /v1/media/assets/{id}` | 删除当前应用和用户拥有的资产，成功返回 `{ deleted: true }`。删除不可逆。 |
 
@@ -512,7 +523,7 @@ await app.api.request('/media/assets/asset_01J...', { method: 'DELETE' })
 
 ### 网页宿主图片缓存（可选能力）
 
-旧版 opaque iframe 宿主使用隔离源，不能依赖 iframe 自己的 IndexedDB 跨刷新保存图片；当前 Web 应用使用同源顶层 server runtime。
+旧版 opaque iframe 宿主使用隔离源，不能依赖 iframe 自己的 IndexedDB 跨刷新保存图片；当前 Web 应用通过 Portal 登录取得 App Session，再直连 Gateway。
 支持图片缓存的网页宿主会在 `app.session()?.host_capabilities` 中公布 `media.image.readCached`。
 能力存在时，可通过现有桥接读取当前账户和应用拥有的图片：
 
@@ -551,7 +562,7 @@ SDK 会把每个事件解析为 `{ event?, data }`。服务端发送结束事件
 
 ## 会话与错误
 
-用户登录并打开已开放应用后，平台会建立内部授权记录并提供有效期 30 天的运行会话，无需单独安装。支持续期的宿主和 SDK 运行模式会在到期前 1 天更新会话。SDK 只在内存中保存会话，并将其附加到获准的请求中；应用不得自行持久化或构造会话。
+已发布应用通过 Portal 登录获取绑定应用及版本的短期 `ast_*` App Session：Portal 使用 HttpOnly 设备 Cookie 换票，再将 App Session 交给当前标签页。应用只把该会话附加到 Gateway `/v1/*` 请求中；设备 Cookie 不会暴露给应用代码，App Session 只保存在当前标签页 `sessionStorage`。`proxy-app dev` 的本地页面也通过 Portal 登录弹窗获取绑定草稿版本的会话，Vite 只代理 Gateway `/v1`。
 
 平台错误会抛出 `AppSdkError`，包含稳定的 `code`，以及可选的 HTTP `status`、`requestId` 和结构化 `details`：
 
@@ -562,15 +573,15 @@ try {
   await app.api.request('/models')
 } catch (error) {
   if (error instanceof AppSdkError && error.code === 'APP_LOGIN_REQUIRED') {
-    await app.auth.login()
+    // 显示登录按钮，在用户点击回调中打开 Portal 弹窗。
+    console.log('显示“登录平台”按钮')
   }
 }
 ```
 
-本地开发先使用 `app.auth.status()` 静默检查授权，无授权时由用户操作调用 `app.auth.login()`。
-普通连接会复用有效登录；`app.auth.login({ forceLogin: true })` 用于重新登录或切换账号，
-`app.auth.logout()` 会清除运行用户授权及当前会话，不影响 CLI 的开发者授权。网络、代理配置或资源加载失败应提供重试，
-不要直接当成未登录。线上登录由平台页面处理，应用仍应提供加载、重试、超时和退出状态。
+网页应用应在用户点击登录按钮时调用 `app.auth.login()`，随后用 `app.platform.createSession()` 重新校验会话。
+
+启动时使用 `app.platform.createSession()` 或 `app.auth.status()` 完成会话预检；网页应用通过 Portal 登录获取 App Session，再由 Gateway `GET /v1/profile` 校验。Portal Cookie 只在 Portal 域内使用；Vite 只代理 Gateway `/v1`。网络、代理配置或资源加载失败应提供重试，不要直接当成未登录。
 
 ## 本地开发
 
@@ -599,9 +610,7 @@ CLI 会先完成开发者授权、应用绑定与 manifest 检查，再启动应
 终端提供授权入口；登记失败在终端报错并阻止应用启动。更换开发账户使用
 `proxy-app dev apps/my-app` 会自动复用有效的开发授权；如果缓存账户无权访问应用，CLI 会清除开发授权并请求一次新的创建者授权。应用内用户登录不会执行开发登记。
 
-macOS 将开发者授权和运行用户授权分别保存在系统钥匙串，按平台、应用、项目目录及用途隔离。
-每次启动重新检查开发权限；应用登录后再创建短期 App Session。其他系统或钥匙串不可用时仅使用进程内存，
-不会把 token 写入项目文件。使用 `proxy-app dev apps/my-app --no-auth-cache` 可禁用两类持久缓存。
+macOS 仅将开发者授权保存在系统钥匙串，按平台、应用和项目目录隔离。每次启动重新检查开发权限；CLI 不预取或保存用户 App Session。浏览器打开本地应用后通过 Portal 登录弹窗获取会话，并仅在当前标签页 `sessionStorage` 中保存。其他系统或钥匙串不可用时，CLI 只在进程内保存开发者授权，不会把 token 写入项目文件。使用 `proxy-app dev apps/my-app --no-auth-cache` 可禁用开发者授权的持久缓存。
 
 ## 安全与兼容
 

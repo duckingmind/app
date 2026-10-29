@@ -52,22 +52,59 @@ npm run dev
 
 应用目录内统一使用 `npm run dev`，参数可以通过 `npm run dev -- --port 5175` 传入。新项目的 `dev` 脚本调用 CLI，`dev:server` 脚本启动底层 Vite；CLI 完成授权和平台检查后再调用 `dev:server`。旧项目只有底层 `dev` 脚本时，仍可直接使用 `proxy-app dev` 启动。缓存开发账户无权访问应用时，CLI 会自动清除缓存并请求新的创建者授权。
 
+### 应用服务端运行时
+
+应用函数有一次性请求函数和任务函数两种契约，由 `@ducking-mind/proxy-app-sdk` 提供。CLI 只负责开发授权、
+构建、校验、打包和发布，不承载云端 JavaScript 执行引擎。应用在本地使用 SDK 的
+`createAppRuntimeDevPlugin()` 时，handler 会挂到现有 Vite server 的 `/api/*` 中，不会额外启动
+Node 服务；这是一次性请求函数的本地模式。任务函数始终通过 `/v1/app-runtime/tasks` 进入 Gateway；
+开发时 CLI 将本地 `runtime/*.js|*.mjs` 登记到应用当前草稿版本，Gateway 持久化任务并派发给 Runtime Host，
+和发布版本使用同一条任务链路。开发者只能预览自己的未发布函数；已上传或发布版本的函数源码不可被本地开发覆盖，修改时必须递增 `manifest.version`。
+
+运行时应用不得在 `manifest.json` 声明数据库。Runtime Host 是无状态 QuickJS 执行器，不连接数据库、
+不提供文件系统和 Secret 能力。函数需要平台数据时，通过 `context.platform.request()` 调用 Gateway
+公开接口；任务的状态、租约、进度、重试和结果由 Gateway 任务面持久化。
+
+#### 本地容器后端（过渡联调）
+
+manifest 可选择声明 Node 22 应用后端：
+
+```json
+{
+  "backend": {
+    "type": "container",
+    "runtime": "node22",
+    "entry": "server/index.mjs",
+    "port": 8080,
+    "health_check": "/healthz",
+    "routes": ["/api/*"]
+  }
+}
+```
+
+入口必须位于 `server/`，并由应用监听 CLI 提供的 `HOST` 与 `PORT`。`proxy-app dev` 完成平台开发检查后，会在 Docker Engine 中以 Node 22 启动后端，并与前端 Vite 服务一起管理；容器以非 root 用户运行，根文件系统只读，源码和依赖描述只读挂载，依赖安装在临时文件系统中，且设置 CPU、内存和进程数限制。后端端口仅绑定到本机回环地址，前端访问同源 `/api/*` 会转发到该后端。开发环境要求 Docker Engine 已启动，依赖必须有 `package-lock.json` 或 Yarn Classic `yarn.lock`。`health_check`、`routes`、`resources.max_concurrency` 当前只做格式校验并写入包内；CPU 和内存会用于本地容器限额，CLI 尚未执行健康探测或本地路由限制。Docker 开发容器用于本地兼容联调，不代表云端多租户安全隔离，也不限制应用代码访问公网。
+
+`proxy-app pack` 会将构建后的前端和 `server/` 源码放入 ZIP。平台目前没有应用 handler 的构建、共享运行时和 Gateway 路由能力，因此 `upload` 与 `publish` 会拒绝此类 manifest；打包产物仅供本地检查和后续云端构建链路使用。后端暂时没有可信的用户身份上下文或 Server SDK，不能把浏览器提交的用户 ID、权限或身份头作为服务端授权依据。Node 容器是本地联调过渡方案，云端目标架构见[无状态 JavaScript 服务端运行时](../../docs/APP_CONTAINER_RUNTIME_DESIGN.md)。
+
 `init` 生成的项目统一使用根目录 `index.html` 入口，并包含一个可被主应用注册的
-`read_metadata` 示例、`src/agent-tools.mjs`、`agent/guide.md`、工作流和校验示例。能力定义只在代码模块中维护，
-源码 manifest 不包含 Agent 配置；CLI 自动发现 `src/agent-tools.mjs`，处理器注册使用同一份完整定义。构建自动生成发布契约，
-不要同时手工维护 manifest 的能力清单。新增能力的最短流程见
+`read_metadata` 示例、`src/agent-tools.mjs`、`agent/guide.md`、工作流和校验示例。能力和处理器在 `registerAgentTools`
+中的同一条 `registry.register(declaration, handler)` 路径实现；CLI 执行该函数收集构建目录。源码 manifest 不包含 Agent 配置，
+也不支持单独导出的能力数组。新增能力的最短流程见
 [应用开发指南](../docs/APP_DEVELOPMENT.md)。
 
 新项目的 manifest 不需要 `apis`、`permissions`、`backend`、`pricing`。省略时默认使用平台 Gateway，
 开放全部当前公开接口和 KV；收费在“我的应用”中设置，提交开放申请前必须填写按调用抽成比例。已有应用可保留显式数组来缩小能力范围，显式空数组表示不使用。
-所有应用都由 Portal 以同源顶层文档启动，资料、KV 和 Gateway 请求使用 App Session Cookie。本地开发源码会自动选择 `local`。
+已发布应用由 Portal 以同源顶层文档启动。浏览器在 Portal 登录后，使用 HttpOnly 设备 Cookie 换取绑定应用版本的 `ast_*` App Session，并只保存在当前标签页；资料、KV 和 Gateway 请求通过该会话访问 Gateway。SDK 的 `local` 模式通过 Portal 登录弹窗获取同样的 App Session，Vite 只代理 Gateway `/v1`；任务函数仍由 Gateway 持久化并派发给 Runtime Host，不在 Vite 中执行。
 入口统一为应用根目录的 `index.html`。旧应用即使仍带有 `runtime` 或 `desktop` 字段也会继续兼容读取；这些字段不参与运行方式选择，历史 iframe 运行方式仍不再支持。
 
-已有项目后续发布时，将旧 `manifest.agent` 中的元数据和能力数组迁移到 `src/agent-tools.mjs` 的
-`agentMetadata` 和 `capabilities`，再从源码 manifest 删除 `agent`。已经发布的旧版应用包仍保持兼容；迁移后由 CLI 从代码声明生成新版发布能力目录。
+已有项目迁移时，将旧 `manifest.agent` 的元数据移入 `agentMetadata`，并把每项能力的 Schema 与实际处理器合并到
+`registerAgentTools` 中的注册调用，再从源码 manifest 删除 `agent`。已经发布的旧版应用包仍保持宿主兼容；新版 CLI
+只从注册实现生成发布目录，声明数组形式的源码会被拒绝。
 
 开发和发布已有应用时，将 `manifest.id` 设为平台应用的公开 slug（或稳定 `app_...` ID），即可直接运行
 `proxy-app dev`、`proxy-app upload` 和 `proxy-app publish`；不需要本地绑定文件、`link` 或 `repair`。
+
+本地开发默认将 `/v1` 代理到线上 Gateway `https://api.duckingmind.com/v1`，与远程平台签发的 App Session 保持同一数据面。需要整套本地平台联调时，显式设置 `PROXY_PLATFORM_GATEWAY_URL` 覆盖默认地址。
 `.proxy-app.json` 仅作为旧项目的兼容缓存，仍可由 `create` / `link` / `repair` 生成；`upload`、`publish` 和 `status` 不读取它，始终按 `manifest.id` 查询平台应用。
 公开 slug 直接使用输入值，例如 `canvas`、`my-app` 或 `app.proxy.canvas`，不会自动添加前缀；
 长度为 1–120，规则为 `^[a-z0-9]+(?:[.-][a-z0-9]+)*$`。`validate`、`pack`、`dev` 都使用同一规则，
@@ -119,14 +156,13 @@ proxy-app pack apps/my-app dist/my-app.zip
 CLI 会继续检查并启动应用；十分钟内未完成会超时，也可用 Ctrl+C 取消。
 本地开发不要求手工配置 token。授权失败时，页面会显示当前授权账户、开发者登录页面、API 地址和应用 slug，便于区分账户、slug 与平台地址不匹配。若看到旧式通用错误页，请先停止旧的开发进程，再从应用目录运行 `npm run dev`。
 
-macOS 默认分别缓存开发者授权和应用运行用户授权，按平台地址、应用、项目目录及用途隔离。
+macOS 默认将开发者授权保存在系统钥匙串，按平台地址、应用和项目目录隔离。运行用户的 Portal Cookie 由 Portal 管理，App Session 只保存在当前浏览器标签页。
 每次重启都重新登记当前 manifest 与本地入口，开发权限不能依赖上一次检查结果。
-完成开发准备后，应用内用户登录才创建短期 App Session；用户的登录、缓存恢复、退出和切换账户
-均不调用开发登记接口，也不清除开发授权。未发布草稿仍受平台访问权限限制，非创建者需使用其有权访问的已发布版本。
+开发检查通过后，CLI 直接启动 Vite，不预取用户 App Session。
+应用打开后通过 Portal 登录弹窗取得当前用户的 App Session。开发时 Vite 的同源桥仅转发 HttpOnly 设备 Cookie 和 CLI 为当前草稿签发的预览许可，不读取 Portal JWT，也不缓存 App Session；生产版本直接由 Portal Cookie 换取已发布版本会话。预览许可绑定单个应用和版本，用户 AST 仍归属于各自的 Portal 账户。
 
-开发账户错误时，重新运行 `proxy-app dev apps/my-app` 即可。CLI 会在登记返回账户无权访问的 401、403 或 404 时清除开发账户缓存，并打开一次新的创建者授权入口；运行用户的授权不会被清除。
-退出开发服务会撤销本次 App Session，保留两类缓存。应用调用 `app.auth.logout()` 只清除运行用户授权；
-`app.auth.login({ forceLogin: true })` 只切换运行用户。平台确认缓存授权过期后才要求重新登录，临时故障保留缓存。
+开发账户错误时，重新运行 `proxy-app dev apps/my-app` 即可。CLI 会在登记返回账户无权访问的 401、403 或 404 时清除开发者授权缓存，并打开一次新的创建者授权入口。运行用户会话独立于 CLI。
+应用内的认证状态通过 Gateway `GET /v1/profile` 预检；App Session 过期或无效时，应用登录按钮会打开 Portal，通过 HttpOnly 设备 Cookie 换取新会话。若设备 Cookie 不存在，Portal 登录后会签发 Cookie 并重试换票；账户切换后重新加载应用以隔离旧账户工作区。
 
 其他系统或钥匙串不可用时，仅使用当前进程内存，不会退回明文文件保存 token。
 如需禁用持久缓存，可运行：
@@ -135,7 +171,7 @@ macOS 默认分别缓存开发者授权和应用运行用户授权，按平台�
 proxy-app dev apps/my-app --no-auth-cache
 ```
 
-此选项禁用两类缓存，不读取或更新已有的钥匙串授权。CLI 不会把授权凭据写入项目、构建产物或本地应用的浏览器存储。
+此选项禁用开发者授权的钥匙串缓存，不读取或更新已有的钥匙串授权。CLI 不会把用户会话写入项目或构建产物。
 
 `build`、`validate`、`pack` 只验证本地产物，不代表远程绑定有效。`doctor` 的绑定检查也是本地结构检查。
 上传和发布继续在平台验证应用归属与版本，开发启动前置检查不能替代它们。
@@ -164,6 +200,7 @@ CLI 从已导出的变量读取配置，不会自动加载 `.env` 文件。请�
 默认使用线上平台 `https://www.duckingmind.com`，API 地址为 `https://www.duckingmind.com/api`，登录页也使用该域名。其他环境若 Portal 与 API 使用同一域名，只设置 `PROXY_PLATFORM_URL=https://platform.example` 即可；若两者使用不同地址，再额外设置 `PROXY_API_BASE_URL` 或 `PROXY_PORTAL_URL` 覆盖对应地址。连接本地平台时，可分别设置 `PROXY_API_BASE_URL=http://localhost:9003/api` 与 `PROXY_PORTAL_URL=http://localhost:9004`。
 管理命令（创建、发布等）仍需 `PROXY_USER_ACCESS_TOKEN`；本地开发使用浏览器授权，不需要这个变量。
 若 shell 已全局导出 `PROXY_USER_ACCESS_TOKEN` 或旧别名 `PROXY_ACCESS_TOKEN`，开发命令会优先使用该令牌；想在浏览器中选择创建者账户时先运行 `unset PROXY_USER_ACCESS_TOKEN PROXY_ACCESS_TOKEN`。
+本地开发时，Portal 在登录后设置 HttpOnly 设备 Cookie；应用通过 Portal 登录弹窗换取自己的 App Session，并将它保存在当前标签页。Vite 只在本地换票时转发设备 Cookie，不读取或转存 Portal JWT，也不保存或续期用户 App Session。
 
 manifest、运行时 API 和发布规范请参阅仓库文档：
 

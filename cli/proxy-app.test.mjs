@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { createServer } from 'node:http'
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
-import { createServer as createTCPServer } from 'node:net'
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { createConnection, createServer as createTCPServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 import test from 'node:test'
 import { unzipSync } from 'fflate'
@@ -129,9 +130,25 @@ test('init generates an automatic local identifier and validates', async () => {
     assert.equal(manifest.apis, undefined)
     assert.equal(manifest.agent, undefined)
     assert.match(await readFile(join(app, 'src', 'agent-tools.mjs'), 'utf8'), /export const agentMetadata/)
-    assert.match(await readFile(join(app, 'src', 'agent-tools.mjs'), 'utf8'), /export const capabilities/)
-    assert.match(await readFile(join(app, 'src', 'main.ts'), 'utf8'), /agent\.register\(capability\('read_metadata'\)/)
-    assert.match(await readFile(join(app, 'src', 'main.ts'), 'utf8'), /runtime: import\.meta\.env\.DEV \? 'local' : undefined/)
+    const agentTools = await readFile(join(app, 'src', 'agent-tools.mjs'), 'utf8')
+    assert.match(agentTools, /export function registerAgentTools/)
+    assert.match(agentTools, /registry\.register\(\{/)
+    assert.match(agentTools, /async \(\) => \(\{ appId: app\.id/)
+    assert.doesNotMatch(agentTools, /export const capabilities/)
+    const module = await import(`${pathToFileURL(join(app, 'src', 'agent-tools.mjs')).href}?runtime-test`)
+    const registered = []
+    const disposers = module.registerAgentTools({ register(declaration, handler) { registered.push({ declaration, handler }); return () => {} } }, manifest)
+    assert.deepEqual(registered.map(({ declaration }) => declaration.name), ['read_metadata'])
+    assert.equal(typeof registered[0].handler, 'function')
+    assert.deepEqual(await registered[0].handler(), { appId: manifest.id, version: manifest.version, name: manifest.name })
+    assert.equal(disposers.length, 1)
+    const main = await readFile(join(app, 'src', 'main.ts'), 'utf8')
+    assert.match(main, /registerAgentTools\(/)
+    assert.doesNotMatch(main, /capability\('read_metadata'\)/)
+    const mainSource = await readFile(join(app, 'src', 'main.ts'), 'utf8')
+    assert.match(mainSource, /runtime: import\.meta\.env\.DEV \? 'local' : undefined/)
+    assert.match(mainSource, /appVersion: manifest\.version/)
+    assert.match(mainSource, /VITE_PROXY_PORTAL_URL/)
     const pkg = JSON.parse(await readFile(join(app, 'package.json'), 'utf8'))
     const cliPackage = JSON.parse(await readFile(new URL('./package.json', import.meta.url), 'utf8'))
     assert.equal(pkg.scripts.dev, 'proxy-app dev')
@@ -143,6 +160,7 @@ test('init generates an automatic local identifier and validates', async () => {
     assert.match(await readFile(join(app, 'README.md'), 'utf8'), /公开 slug/)
     assert.doesNotMatch(await readFile(join(app, 'README.md'), 'utf8'), /proxy-app link <app-id>/)
     assert.match(await readFile(join(app, 'vite.config.ts'), 'utf8'), /base: '\.\/'/)
+    assert.match(await readFile(join(app, 'vite.config.ts'), 'utf8'), /createPlatformDevSessionPlugin\(\)/)
     const result = await exec(process.execPath, [cli.pathname, 'validate', app])
     assert.match(result.stdout, /"valid": true/)
   } finally {
@@ -164,6 +182,93 @@ test('validate accepts legacy runtime and desktop metadata', async () => {
   } finally {
     await rm(temp, { recursive: true, force: true })
   }
+})
+
+test('container backend manifest validates a safe Node entry and rejects unsupported fields', async (t) => {
+  const temp = await mkdtemp(join(tmpdir(), 'proxy-app-container-manifest-'))
+  const appDir = join(temp, 'demo')
+  t.after(() => rm(temp, { recursive: true, force: true }))
+  await exec(process.execPath, [cli.pathname, 'init', appDir])
+  await mkdir(join(appDir, 'server'), { recursive: true })
+  await writeFile(join(appDir, 'server', 'index.mjs'), 'export {}\n')
+  const manifestPath = join(appDir, 'manifest.json')
+  const base = JSON.parse(await readFile(manifestPath, 'utf8'))
+  const backend = {
+    type: 'container', runtime: 'node22', entry: 'server/index.mjs', port: 8080,
+    health_check: '/healthz', routes: ['/api/*'],
+    resources: { cpu_millicores: 500, memory_mib: 512, max_concurrency: 40 },
+  }
+  await writeFile(manifestPath, JSON.stringify({ ...base, backend }))
+  const valid = await exec(process.execPath, [cli.pathname, 'validate', appDir])
+  assert.equal(JSON.parse(valid.stdout).valid, true)
+
+  for (const invalid of [
+    { ...backend, runtime: 'node20' },
+    { ...backend, entry: '../server/index.mjs' },
+    { ...backend, entry: 'server//index.mjs' },
+    { ...backend, entry: 'src/index.mjs' },
+    { ...backend, port: 65536 },
+    { ...backend, health_check: '//example.test/health' },
+    { ...backend, routes: ['/v1/*'] },
+    { ...backend, routes: ['/api/*', '/api/*'] },
+    { ...backend, resources: { memory_mib: 0 } },
+  ]) {
+    await writeFile(manifestPath, JSON.stringify({ ...base, backend: invalid }))
+    await assert.rejects(exec(process.execPath, [cli.pathname, 'validate', appDir]), /manifest\.backend/)
+  }
+  await writeFile(manifestPath, JSON.stringify({ ...base, backend: { ...backend, entry: 'server/missing.mjs' } }))
+  await assert.rejects(exec(process.execPath, [cli.pathname, 'validate', appDir]), /entry does not exist/)
+})
+
+test('container package includes server sources, while current cloud upload remains closed', async (t) => {
+  const fixture = await releaseFixture(t)
+  const manifestPath = join(fixture.appDir, 'manifest.json')
+  await mkdir(join(fixture.appDir, 'server'), { recursive: true })
+  await writeFile(join(fixture.appDir, 'server', 'index.mjs'), 'export const backend = true\n')
+  await writeFile(manifestPath, JSON.stringify({ ...fixture.manifest, backend: {
+    type: 'container', runtime: 'node22', entry: 'server/index.mjs', port: 8080,
+  } }))
+  const output = join(fixture.temp, 'container-app.zip')
+  await exec(process.execPath, [cli.pathname, 'pack', fixture.appDir, output], { env: fixture.env })
+  const files = unzipSync(new Uint8Array(await readFile(output)))
+  assert.equal(Buffer.from(files['server/index.mjs']).toString(), 'export const backend = true\n')
+  assert.equal(JSON.parse(Buffer.from(files['manifest.json']).toString()).backend.type, 'container')
+  await assert.rejects(exec(process.execPath, [cli.pathname, 'upload', fixture.appDir], { env: fixture.env }), /尚未支持云端容器后端/)
+  assert.equal(fixture.requests.some(request => request.method === 'POST'), false)
+})
+
+test('pack includes a compiled stateless handler from the build output', async (t) => {
+  const fixture = await releaseFixture(t)
+  const buildPath = join(fixture.appDir, 'build-fixture.mjs')
+  const build = await readFile(buildPath, 'utf8')
+  await writeFile(buildPath, `${build}\nawait mkdir('dist/runtime', { recursive: true })\nawait writeFile('dist/runtime/handler.js', "export const handler = async () => new Response('ok')\\n")\n`)
+  const output = join(fixture.temp, 'handler-app.zip')
+  await exec(process.execPath, [cli.pathname, 'pack', fixture.appDir, output], { env: fixture.env })
+  const files = unzipSync(new Uint8Array(await readFile(output)))
+  assert.equal(Buffer.from(files['runtime/handler.js']).toString(), "export const handler = async () => new Response('ok')\n")
+})
+
+test('pack includes both one-time and task function entries', async (t) => {
+  const fixture = await releaseFixture(t)
+  const manifestPath = join(fixture.appDir, 'manifest.json')
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+  manifest.functions = {
+    request: { entry: 'runtime/handler.js', source: 'src/runtime/handler.ts', routes: ['/api/demo/run'] },
+    task: { entry: 'runtime/task.js', source: 'src/runtime/task.ts', concurrency: 4, max_attempts: 2, timeout_ms: 900000 },
+  }
+  await writeFile(manifestPath, JSON.stringify(manifest))
+  await mkdir(join(fixture.appDir, 'src', 'runtime'), { recursive: true })
+  await writeFile(join(fixture.appDir, 'src', 'runtime', 'handler.ts'), 'export const handler = true\n')
+  await writeFile(join(fixture.appDir, 'src', 'runtime', 'task.ts'), 'export const taskFunction = true\n')
+  const buildPath = join(fixture.appDir, 'build-fixture.mjs')
+  const build = await readFile(buildPath, 'utf8')
+  await writeFile(buildPath, `${build}\nawait mkdir('dist/runtime', { recursive: true })\nawait writeFile('dist/runtime/handler.js', 'export const handler = true\\n')\nawait writeFile('dist/runtime/task.js', 'export const taskFunction = true\\n')\n`)
+  const output = join(fixture.temp, 'two-functions.zip')
+  await exec(process.execPath, [cli.pathname, 'pack', fixture.appDir, output], { env: fixture.env })
+  const files = unzipSync(new Uint8Array(await readFile(output)))
+  assert.equal(Buffer.from(files['runtime/handler.js']).toString(), 'export const handler = true\n')
+  assert.equal(Buffer.from(files['runtime/task.js']).toString(), 'export const taskFunction = true\n')
+  assert.deepEqual(JSON.parse(Buffer.from(files['manifest.json']).toString()).functions.task, manifest.functions.task)
 })
 
 test('validate and pack accept short public slugs without adding a prefix', async t => {
@@ -850,7 +955,7 @@ test('dev starts a real platform relay without passing the management session to
     requests.push({ method: request.method, url: request.url, authorization: request.headers.authorization, body })
     response.setHeader('Content-Type', 'application/json')
     if (request.method === 'POST' && request.url === '/api/portal/user/app-workspace/by-slug/app.example.demo/local-development') {
-      response.end(JSON.stringify({ data: { id: 'app-1', slug: 'app.example.demo' } }))
+      response.end(JSON.stringify({ data: { id: 'app-1', slug: 'app.example.demo', local_development_grant: 'development-preview-grant-0123456789' } }))
       return
     }
     if (request.method === 'POST' && request.url === '/api/portal/user/apps/app-1/sessions') {
@@ -883,6 +988,9 @@ test('dev starts a real platform relay without passing the management session to
     PROXY_USER_ACCESS_TOKEN: 'management-session-that-must-not-leak',
     PROXY_API_BASE_URL: `http://127.0.0.1:${platformAddress.port}/api`,
     PROXY_PORTAL_URL: `http://127.0.0.1:${platformAddress.port}`,
+    PROXY_PLATFORM_GATEWAY_URL: '',
+    PROXY_APP_DEV_AUTH_RELAY_URL: 'https://attacker.example/auth',
+    PROXY_APP_DEV_AUTH_RELAY_SECRET: 'attacker-controlled',
     PROXY_APP_DEV_RESULT_FILE: resultPath,
   }
   try {
@@ -898,29 +1006,30 @@ test('dev starts a real platform relay without passing the management session to
       scripts: { dev: 'node dev-exit.mjs' },
     }))
     await writeFile(join(appDir, 'dev-exit.mjs'), `import { writeFile } from 'node:fs/promises'
-const authStatus = await fetch(process.env.PROXY_PLATFORM_AUTH_URL + '/status', {
-  headers: { 'X-Proxy-App-Relay': process.env.PROXY_PLATFORM_RELAY_SECRET },
-}).then(response => response.json())
 await writeFile(process.env.PROXY_APP_DEV_RESULT_FILE, JSON.stringify({
-  authenticated: authStatus.data.authenticated,
   hasManagementSession: Boolean(process.env.PROXY_USER_ACCESS_TOKEN || process.env.PROXY_ACCESS_TOKEN),
   hasPlatformAPI: Boolean(process.env.PROXY_API_BASE_URL),
   hasGateway: Boolean(process.env.PROXY_PLATFORM_GATEWAY_URL),
+  gatewayURL: process.env.PROXY_PLATFORM_GATEWAY_URL,
   hasRuntime: Boolean(process.env.PROXY_PLATFORM_RUNTIME_URL),
   hasBridge: Boolean(process.env.PROXY_PLATFORM_BRIDGE_URL),
   hasAuth: Boolean(process.env.PROXY_PLATFORM_AUTH_URL),
+  authRelayURL: process.env.PROXY_APP_DEV_AUTH_RELAY_URL,
+  hasAuthRelaySecret: Boolean(process.env.PROXY_APP_DEV_AUTH_RELAY_SECRET),
 }))
 process.exit(1)
 `)
     await assert.rejects(exec(process.execPath, [cli.pathname, 'dev', appDir, '--port', '5187', '--no-auth-cache'], { env }), /npm exited with 1/)
     const childResult = JSON.parse(await readFile(resultPath, 'utf8'))
-    assert.equal(childResult.authenticated, false)
     assert.equal(childResult.hasManagementSession, false)
     assert.equal(childResult.hasPlatformAPI, false)
     assert.equal(childResult.hasGateway, true)
+    assert.equal(childResult.gatewayURL, 'https://api.duckingmind.com/v1')
     assert.equal(childResult.hasRuntime, false)
     assert.equal(childResult.hasBridge, false)
-    assert.equal(childResult.hasAuth, true)
+    assert.equal(childResult.hasAuth, false)
+    assert.equal(childResult.authRelayURL, undefined)
+    assert.equal(childResult.hasAuthRelaySecret, false)
     assert.equal(requests.length, 1)
     assert.equal(requests[0].url, '/api/portal/user/app-workspace/by-slug/app.example.demo/local-development')
     assert.equal(requests[0].authorization, 'Bearer management-session-that-must-not-leak')
@@ -929,6 +1038,112 @@ process.exit(1)
     await new Promise((resolvePromise) => platform.close(resolvePromise))
     await rm(temp, { recursive: true, force: true })
   }
+})
+
+test('container backend runs beside the frontend with isolated environment and shared shutdown', async (t) => {
+  const fixture = await devFixture(t)
+  const backendPortServer = createTCPServer()
+  await new Promise((resolvePromise) => backendPortServer.listen(0, '127.0.0.1', resolvePromise))
+  const backendPort = backendPortServer.address().port
+  await new Promise((resolvePromise) => backendPortServer.close(resolvePromise))
+
+  const manifestPath = join(fixture.appDir, 'manifest.json')
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+  await writeFile(manifestPath, JSON.stringify({ ...manifest, backend: {
+    type: 'container', runtime: 'node22', entry: 'server/index.mjs', port: backendPort,
+    routes: ['/api/*'],
+  } }))
+  await mkdir(join(fixture.appDir, 'server'), { recursive: true })
+  await writeFile(join(fixture.appDir, 'server', 'index.mjs'), `import { createServer } from 'node:http'
+const server = createServer((request, response) => {
+  response.setHeader('content-type', 'application/json')
+  response.end(JSON.stringify({
+    path: request.url,
+    appId: process.env.PROXY_APP_ID,
+    appVersion: process.env.PROXY_APP_VERSION,
+    port: process.env.PORT,
+    host: process.env.HOST,
+    hasManagementSession: Boolean(process.env.PROXY_USER_ACCESS_TOKEN),
+    hasRelaySecret: Boolean(process.env.PROXY_PLATFORM_RELAY_SECRET),
+    hasPlatformAuth: Boolean(process.env.PROXY_PLATFORM_AUTH_URL),
+  }))
+})
+server.listen(Number(process.env.PORT), process.env.HOST)
+`)
+  await writeFile(join(fixture.appDir, 'package.json'), JSON.stringify({
+    name: 'container-dev-test', private: true, scripts: { dev: 'proxy-app dev', 'dev:server': 'node dev-check.mjs' },
+  }))
+  await writeFile(join(fixture.appDir, 'package-lock.json'), JSON.stringify({
+    name: 'container-dev-test', version: '1.0.0', lockfileVersion: 3, requires: true,
+    packages: { '': { name: 'container-dev-test', version: '1.0.0' } },
+  }))
+  await writeFile(join(fixture.appDir, 'dev-check.mjs'), `import { writeFile } from 'node:fs/promises'
+let result
+for (let attempt = 0; attempt < 40; attempt += 1) {
+  try {
+    result = await fetch(process.env.PROXY_APP_BACKEND_URL + '/api/design/health').then(response => response.json())
+    break
+  } catch {
+    await new Promise(resolve => setTimeout(resolve, 50))
+  }
+}
+if (!result) throw new Error('local backend did not start')
+await writeFile(process.env.PROXY_APP_DEV_RESULT_FILE, JSON.stringify({ result, appBackendURL: process.env.PROXY_APP_BACKEND_URL }))
+`)
+  const bin = join(fixture.appDir, 'node_modules', '.bin')
+  await mkdir(bin, { recursive: true })
+  await symlink(cli.pathname, join(bin, 'proxy-app'))
+  const docker = join(fixture.appDir, 'docker-fixture.mjs')
+  await writeFile(docker, `#!/usr/bin/env node
+import { spawn } from 'node:child_process'
+import { writeFile } from 'node:fs/promises'
+const args = process.argv.slice(2)
+if (args[0] === 'info') process.exit(0)
+if (args[0] !== 'run') process.exit(2)
+await writeFile('docker-args.json', JSON.stringify(args))
+const mount = args.find(value => value.startsWith('--mount=') && value.endsWith(',dst=/workspace/server,readonly'))
+const serverDir = mount.match(/^--mount=type=bind,src=(.*),dst=\\/workspace\\/server,readonly$/)?.[1]
+const command = args.at(-1)
+const entry = command.match(/exec node --watch -- '([^']+)'/)?.[1]
+if (!serverDir || !entry) throw new Error('Docker runtime arguments are missing the source mount or entry')
+const env = Object.fromEntries(args.filter(value => value.startsWith('--env=')).map(value => {
+  const separator = value.indexOf('=', 6)
+  return [value.slice(6, separator), value.slice(separator + 1)]
+}))
+const source = entry.replace('/workspace/server/', serverDir + '/')
+const child = spawn(process.execPath, ['--watch', source], { env: { PATH: process.env.PATH, ...env }, stdio: 'inherit' })
+for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => child.kill(signal))
+child.once('error', error => { console.error(error); process.exitCode = 1 })
+child.once('close', (code, signal) => { process.exitCode = code ?? (signal ? 1 : 0) })
+`)
+  await chmod(docker, 0o755)
+
+  const completed = await exec('npm', ['run', 'dev', '--', '--port', '5197', '--no-auth-cache'], {
+    cwd: fixture.appDir,
+    env: { ...fixture.env, PROXY_APP_DOCKER_BIN: docker, PROXY_USER_ACCESS_TOKEN: 'developer-management-token' },
+    timeout: 15_000,
+  })
+  assert.match(completed.stdout, /Local app backend: http:\/\/127\.0\.0\.1:/)
+  const result = JSON.parse(await readFile(fixture.resultPath, 'utf8'))
+  assert.equal(result.appBackendURL, `http://127.0.0.1:${backendPort}`)
+  assert.deepEqual(result.result, {
+    path: '/api/design/health',
+    appId: 'app.example.demo',
+    appVersion: '0.1.0',
+    port: String(backendPort),
+    host: '0.0.0.0',
+    hasManagementSession: false,
+    hasRelaySecret: false,
+    hasPlatformAuth: false,
+  })
+  const dockerArgs = JSON.parse(await readFile(join(fixture.appDir, 'docker-args.json'), 'utf8'))
+  for (const flag of ['--read-only', '--cap-drop=ALL', '--security-opt=no-new-privileges:true', '--user=1000:1000', '--pids-limit=128']) {
+    assert.ok(dockerArgs.includes(flag), `missing container hardening flag: ${flag}`)
+  }
+  assert.ok(dockerArgs.some(value => value.startsWith('--publish=127.0.0.1:')))
+  assert.ok(dockerArgs.some(value => value.startsWith('--memory=')))
+  assert.ok(dockerArgs.includes('node:22-bookworm-slim'))
+  await assert.rejects(fetch(`http://127.0.0.1:${backendPort}/api/design/health`))
 })
 
 for (const identity of ['canvas', 'x', 'canvas-v2', 'app.example.demo', 'app_202609121649161dd4']) {
@@ -945,7 +1160,9 @@ for (const identity of ['canvas', 'x', 'canvas-v2', 'app.example.demo', 'app_202
     assert.match(result.stdout, /开发应用检查通过/)
     assert.equal(f.requests[0].url, `/api/portal/user/app-workspace/by-slug/${identity}/local-development`)
     const started = JSON.parse(await readFile(f.resultPath, 'utf8'))
-    assert.equal(started.data.app_id, 'app-1')
+    assert.equal(started.hasManagementSession, false)
+    assert.equal(started.hasAuthRelayURL, false)
+    assert.equal(started.hasAuthRelaySecret, false)
     await assert.rejects(readFile(join(f.appDir, '.proxy-app.json')), { code: 'ENOENT' })
   })
 }
@@ -965,20 +1182,39 @@ test('dev rejects mock mode instead of providing an offline runtime', async () =
 })
 
 
-async function devFixture(t, { status = 200, error = 'platform registration failed', code, requestId } = {}) {
+async function devFixture(t, {
+  status = 200,
+  error = 'platform registration failed',
+  code,
+  requestId,
+  probeEntry = false,
+  responseContentType = 'application/json',
+  responseBody,
+} = {}) {
   const temp = await mkdtemp(join(tmpdir(), 'proxy-app-cli-preflight-'))
   const appDir = join(temp, 'demo')
   const resultPath = join(temp, 'started.json')
   const requests = []
+  let probeSocket
   const platform = createServer(async (request, response) => {
     let body = ''
     for await (const chunk of request) body += chunk
     requests.push({ method: request.method, url: request.url, authorization: request.headers.authorization, body })
-    response.setHeader('Content-Type', 'application/json')
+    response.setHeader('Content-Type', responseContentType)
     if (request.method === 'POST' && /^\/api\/portal\/user\/app-workspace\/by-slug\/[^/]+\/local-development$/.test(request.url)) {
+      if (probeEntry) {
+        const entryURL = new URL(JSON.parse(body).entry_url)
+        probeSocket = createConnection({ host: entryURL.hostname, port: Number(entryURL.port) })
+        await new Promise((resolvePromise, reject) => {
+          probeSocket.once('connect', resolvePromise)
+          probeSocket.once('error', reject)
+        })
+      }
       response.statusCode = status
       if (requestId) response.setHeader('x-request-id', requestId)
-      response.end(JSON.stringify(status === 200 ? { data: { id: 'app-1', slug: 'app.example.demo' } } : { error, code }))
+      response.end(responseBody ?? JSON.stringify(status === 200
+        ? { data: { id: 'app-1', slug: 'app.example.demo', local_development_grant: 'development-preview-grant-0123456789' } }
+        : { error, code }))
       return
     }
     if (request.method === 'GET' && request.url === '/api/portal/user/profile') {
@@ -990,6 +1226,7 @@ async function devFixture(t, { status = 200, error = 'platform registration fail
   })
   await new Promise((resolvePromise) => platform.listen(0, '127.0.0.1', resolvePromise))
   t.after(async () => {
+    probeSocket?.destroy()
     await new Promise((resolvePromise) => platform.close(resolvePromise))
     await rm(temp, { recursive: true, force: true })
   })
@@ -1013,17 +1250,18 @@ async function devFixture(t, { status = 200, error = 'platform registration fail
   await writeFile(manifestPath, JSON.stringify(manifest))
   await writeFile(join(appDir, '.proxy-app.json'), JSON.stringify({ app_id: 'app-1', slug: manifest.id }))
   await writeFile(join(appDir, 'package.json'), JSON.stringify({ name: 'dev-preflight-test', private: true, scripts: { dev: 'node started.mjs' } }))
-  await writeFile(join(appDir, 'started.mjs'), `import { readFile, writeFile } from 'node:fs/promises'
-const status = await fetch(process.env.PROXY_PLATFORM_AUTH_URL + '/status', {
-  headers: { 'X-Proxy-App-Relay': process.env.PROXY_PLATFORM_RELAY_SECRET },
-}).then(response => response.json())
-const previous = await readFile(process.env.PROXY_APP_DEV_RESULT_FILE, 'utf8').then(JSON.parse).catch(() => ({}))
-status.starts = (previous.starts || 0) + 1
-status.args = process.argv.slice(2)
-await writeFile(process.env.PROXY_APP_DEV_RESULT_FILE, JSON.stringify(status))
+  await writeFile(join(appDir, 'started.mjs'), `import { writeFile } from 'node:fs/promises'
+await writeFile(process.env.PROXY_APP_DEV_RESULT_FILE, JSON.stringify({
+  starts: 1,
+  args: process.argv.slice(2),
+  hasManagementSession: Boolean(process.env.PROXY_USER_ACCESS_TOKEN || process.env.PROXY_ACCESS_TOKEN),
+  hasPortalURL: Boolean(process.env.VITE_PROXY_PORTAL_URL),
+  hasAuthRelayURL: Boolean(process.env.PROXY_APP_DEV_AUTH_RELAY_URL),
+  hasAuthRelaySecret: Boolean(process.env.PROXY_APP_DEV_AUTH_RELAY_SECRET),
+}))
 console.log('fixture dev server started')
 `)
-  return { appDir, baseURL, env, resultPath, requests }
+  return { appDir, baseURL, env, resultPath, requests, get probeSocket() { return probeSocket } }
 }
 
 async function useGenericDevScript(fixture, serverScript = 'node started.mjs') {
@@ -1046,7 +1284,10 @@ test('npm run dev checks the app before starting dev:server exactly once', async
   assert.equal(fixture.requests[0].authorization, 'Bearer developer-management-token')
   const started = JSON.parse(await readFile(fixture.resultPath, 'utf8'))
   assert.equal(started.starts, 1)
-  assert.equal(started.data.authenticated, false)
+  assert.equal(started.hasManagementSession, false)
+  assert.equal(started.hasPortalURL, true)
+  assert.equal(started.hasAuthRelayURL, false)
+  assert.equal(started.hasAuthRelaySecret, false)
   const entryURL = new URL(JSON.parse(fixture.requests[0].body).entry_url)
   assert.deepEqual(started.args, ['--host', '127.0.0.1', '--port', entryURL.port, '--strictPort'])
   assert.ok(result.stdout.indexOf('开发应用检查通过') < result.stdout.indexOf('fixture dev server started'))
@@ -1109,7 +1350,7 @@ test('dev rejects a server script that reenters the development launcher', async
   await assert.rejects(readFile(fixture.resultPath), { code: 'ENOENT' })
 })
 
-test('dev selects the next loopback port when the requested port is occupied', async (t) => {
+test('dev fails clearly when an explicitly requested port is occupied', async (t) => {
   const fixture = await devFixture(t)
   const busy = createTCPServer()
   await new Promise((resolvePromise) => busy.listen(0, '127.0.0.1', resolvePromise))
@@ -1121,12 +1362,26 @@ test('dev selects the next loopback port when the requested port is occupied', a
   const result = await startCLI(['dev', fixture.appDir, '--port', String(occupiedPort), '--no-auth-cache'], {
     env: { ...fixture.env, PROXY_USER_ACCESS_TOKEN: 'developer-management-token' },
   }).completed
-  assert.equal(result.error, null, result.stderr)
-  assert.match(result.stderr, new RegExp(`端口 ${occupiedPort} 已被占用`))
-  const entryURL = JSON.parse(fixture.requests[0].body).entry_url
-  const selectedPort = Number(new URL(entryURL).port)
-  assert.ok(selectedPort > occupiedPort)
-  assert.match(result.stdout, new RegExp(`Local app: http://127\\.0\\.0\\.1:${selectedPort}/`))
+  assert.notEqual(result.error, null)
+  assert.match(result.stderr, new RegExp(`端口 ${occupiedPort} 已被占用；请停止占用该端口的旧开发服务器`))
+  assert.equal(fixture.requests.length, 0, 'port conflict should be detected before platform registration')
+  await assert.rejects(readFile(fixture.resultPath), { code: 'ENOENT' })
+})
+
+test('dev releases the reserved port when a platform probe connects during preflight', async (t) => {
+  const fixture = await devFixture(t, { probeEntry: true })
+  await useGenericDevScript(fixture)
+  const invocation = startCLI(['dev', fixture.appDir, '--no-auth-cache'], {
+    env: { ...fixture.env, PROXY_USER_ACCESS_TOKEN: 'developer-management-token' },
+  })
+  t.after(async () => {
+    fixture.probeSocket?.destroy()
+    invocation.child.kill('SIGTERM')
+    await invocation.completed
+  })
+
+  const output = await invocation.waitForOutput(/fixture dev server started/)
+  assert.match(output, /开发应用检查通过/)
   assert.equal(JSON.parse(await readFile(fixture.resultPath, 'utf8')).starts, 1)
 })
 
@@ -1172,7 +1427,7 @@ function developerLogin(output) {
 }
 
 for (const scenario of [
-  { status: 401, message: /登录态已失效|重新登录/ },
+  { status: 401, message: /开发者授权已过期|重新登录/ },
   { status: 403, requestId: 'request-binding_403', message: /无权.*开发|开发权限|创建者/ },
   { status: 404, requestId: 'unsafe?developer-management-token', message: /该平台上没有当前账户拥有的同 slug 应用/ },
   { status: 409, requestId: 'request-manifest-409', code: 'APP_LOCAL_MANIFEST_CONFLICT', message: /manifest|版本/ },
@@ -1208,7 +1463,25 @@ for (const scenario of [
   })
 }
 
-test('dev waits for developer callback, then starts with a separate unauthenticated app user', async (t) => {
+test('dev reports the HTTP status and request ID for a non-JSON platform failure', async (t) => {
+  const fixture = await devFixture(t, {
+    status: 502,
+    requestId: 'request-html-502',
+    responseContentType: 'text/html; charset=utf-8',
+    responseBody: '<html>upstream unavailable</html>',
+  })
+  const result = await startCLI(['dev', fixture.appDir, '--no-auth-cache'], {
+    env: { ...fixture.env, PROXY_USER_ACCESS_TOKEN: 'developer-management-token' },
+  }).completed
+  assert.equal(result.error?.code, 1)
+  assert.match(result.stderr, /HTTP 502/)
+  assert.match(result.stderr, /请求编号：request-html-502/)
+  assert.doesNotMatch(result.stderr, /该平台上没有当前账户拥有的同 slug 应用/)
+  assert.doesNotMatch(result.stdout + result.stderr, /developer-management-token/)
+  await assert.rejects(readFile(fixture.resultPath), { code: 'ENOENT' })
+})
+
+test('dev waits for developer callback, then starts with browser-owned user sessions', async (t) => {
   const fixture = await devFixture(t)
   const invocation = startCLI(['dev', '--no-auth-cache'], { env: fixture.env, cwd: fixture.appDir })
   t.after(async () => { invocation.child.kill('SIGTERM'); await invocation.completed })
@@ -1229,9 +1502,15 @@ test('dev waits for developer callback, then starts with a separate unauthentica
   assert.equal(result.error, null, result.stderr)
   assert.match(result.stdout, /开发应用检查通过/)
   assert.match(result.stdout, /Local app:/)
+  assert.match(result.stdout, /App Session: sign in through the Portal when prompted; the browser keeps it in this tab\./)
   assert.equal(fixture.requests.length, 1)
   assert.equal(fixture.requests[0].authorization, 'Bearer developer-browser-token')
-  assert.equal(JSON.parse(await readFile(fixture.resultPath, 'utf8')).data.authenticated, false)
+  const child = JSON.parse(await readFile(fixture.resultPath, 'utf8'))
+  assert.equal(child.starts, 1)
+  assert.equal(child.hasPortalURL, true)
+  assert.equal(child.hasManagementSession, false)
+  assert.equal(child.hasAuthRelayURL, false)
+  assert.equal(child.hasAuthRelaySecret, false)
 })
 
 for (const signal of ['SIGINT', 'SIGTERM']) {

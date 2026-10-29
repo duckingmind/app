@@ -1,10 +1,26 @@
+import { readFileSync } from 'node:fs'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { createPlatformDevProxy } from '../../proxy-app-sdk/src/vite.ts'
+import { createPlatformDevProxy, createPlatformDevSessionPlugin } from '../../proxy-app-sdk/src/vite.ts'
+import appManifest from './manifest.json' with { type: 'json' }
 
 export default defineConfig({
   base: './',
-  plugins: [react()],
+  plugins: [
+    react(),
+    createPlatformDevSessionPlugin(),
+    {
+      name: 'pelican-task-runtime-artifact',
+      apply: 'build',
+      generateBundle() {
+        this.emitFile({
+          type: 'asset',
+          fileName: 'runtime/task.mjs',
+          source: readFileSync(new URL('./runtime/task.mjs', import.meta.url).pathname, 'utf8'),
+        })
+      },
+    },
+  ],
   resolve: {
     alias: {
       '@ducking-mind/proxy-app-sdk': new URL('../../proxy-app-sdk/src/index.ts', import.meta.url).pathname,

@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { createPlatformDevProxy } from '@ducking-mind/proxy-app-sdk/vite'
+import { createPlatformDevProxy, createPlatformDevSessionPlugin } from '@ducking-mind/proxy-app-sdk/vite'
 
 export default defineConfig({
   base: './',
@@ -11,5 +11,5 @@ export default defineConfig({
     // Local app traffic must use the same Gateway-only boundary as production.
     proxy: createPlatformDevProxy(),
   },
-  plugins: [react()],
+  plugins: [react(), createPlatformDevSessionPlugin()],
 })

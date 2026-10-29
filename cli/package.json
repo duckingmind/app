@@ -1,6 +1,6 @@
 {
   "name": "@ducking-mind/proxy-app-cli",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "CLI for creating, building and publishing Proxy platform apps",
   "repository": {
     "type": "git",
@@ -20,14 +20,16 @@
     "./package.json": "./package.json"
   },
   "bin": {
-    "proxy-app": "./proxy-app.mjs",
-    "proxy-agent-contract": "./agent-contract.mjs"
+    "proxy-app": "proxy-app.mjs",
+    "proxy-agent-contract": "agent-contract.mjs"
   },
   "files": [
     "proxy-app.mjs",
+    "backend-container.mjs",
     "platform-settings.mjs",
     "local-dev-relay.mjs",
     "local-dev-credentials.mjs",
+    "runtime-sources.mjs",
     "artifact-security.mjs",
     "agent-contract.mjs",
     "agent-runtime/protocol.mjs",
@@ -35,7 +37,7 @@
     "prepare-agent-runtime.mjs"
   ],
   "scripts": {
-    "test": "node --check proxy-app.mjs && node --check agent-contract.mjs && node --test *.test.mjs",
+    "test": "node --check proxy-app.mjs && node --check agent-contract.mjs && node --check runtime-sources.mjs && node --test *.test.mjs",
     "prepublishOnly": "npm test",
     "prepack": "node prepare-agent-runtime.mjs",
     "pretest": "npm --prefix ../proxy-app-sdk run build"

@@ -19,7 +19,7 @@ npm run dev
 ```text
 my-app/
 ├── manifest.json          # 运行目标和应用基础信息
-├── src/agent-tools.mjs    # Agent 元数据、能力定义和运行时共用代码
+├── src/agent-tools.mjs    # Agent 元数据、注册实现和运行时共用代码
 ├── src/agent-tools.d.mts  # 能力模块的 TypeScript 类型
 ├── src/main.ts            # SDK 初始化和处理器注册
 ├── agent/guide.md         # 应用工作规则
@@ -28,15 +28,52 @@ my-app/
 └── README.md
 ```
 
-`src/agent-tools.mjs` 是源码侧的 MCP 能力定义，应用处理器通过同一份定义注册；增删该模块或其中的能力会改变构建结果。CLI 按约定发现此模块，并从它生成发布 manifest 中的能力目录。主应用使用这份构建快照，在应用尚未启动时也能发现工具和读取 API 参考。源码 `manifest.json` 不包含 `agent` 配置。
+`src/agent-tools.mjs` 是源码侧唯一的 MCP 注册实现。每项能力的 Schema 与 handler 放在同一条 `registry.register(declaration, handler)` 路径中；构建时 CLI 用 collector 执行该路径收集目录，运行时 SDK 用真实 registry 绑定 handler。主应用使用构建生成的目录，在应用尚未启动时也能发现工具和读取 API 参考。源码 `manifest.json` 不包含 `agent` 配置，也不能另行导出能力数组。
 
 清单也无需填写 `apis`、`permissions`、`backend`、`pricing`：默认使用平台 Gateway，公开数据接口由
 平台签发的 App Session 或 API Key scope、账户权益和路由策略控制，应用默认可使用公开 KV。已有应用
 可以保留 `apis` 作为能力目录元数据，但它不会额外收窄 Gateway 授权。
 
+## 选择服务端函数类型
+
+应用可以在 `manifest.json` 的 `functions` 中声明一种或两种服务端函数：
+
+- `request` 是一次性函数。每个 HTTP 请求创建独立上下文，返回 `Response` 后结束；适合参数校验、短业务编排和发起平台请求。
+- `task` 是任务函数。平台把任务写入 Gateway 队列，并为每次尝试启动一个隔离执行过程，直到任务成功、最终失败或取消；适合长耗时、批处理和需要进度/取消/重试的工作。
+
+```json
+{
+  "functions": {
+    "request": {
+      "entry": "runtime/handler.js",
+      "source": "src/runtime/handler.ts",
+      "routes": ["/api/my-app/run"],
+      "timeout_ms": 300000
+    },
+    "task": {
+      "entry": "runtime/task.js",
+      "source": "src/runtime/task.ts",
+      "concurrency": 4,
+      "max_attempts": 3,
+      "timeout_ms": 900000
+    }
+  }
+}
+```
+
+应用函数无状态运行，不能声明或连接数据库。Runtime Host 每次请求或任务尝试都创建隔离 QuickJS
+沙箱，函数只能通过 `context.platform.request()` 调用 Gateway 公开接口。请求函数在 HTTP 响应后释放；
+任务函数只执行一次 attempt。任务 ID、幂等键、租约、进度、重试和结果由 Gateway 持久保存，因此实例
+重启或发布切换后任务仍可恢复。`concurrency` 控制同一版本的并行任务数；没有常驻实例池或
+`min_instances`/`max_instances` 配置。
+本地 Vite 的 `createAppRuntimeDevPlugin()` 仅用于一次性请求函数的 UI 联调。任务函数在本地开发和发布环境中
+都通过 Gateway 的 `/v1/app-runtime/tasks` 执行：`proxy-app dev` 会把 `runtime/` 源码登记到应用创建者的私有草稿，
+Gateway 持久化任务并派发给 Runtime Host。Vite 只提供前端页面和 `/v1` 代理，不维护任务队列或执行任务代码。
+修改任务函数源码后，重启 `proxy-app dev` 以更新草稿；已上传或已发布版本不可由本地源码覆盖，必须递增版本号。
+
 ## 添加一个能力
 
-在 `src/agent-tools.mjs` 导出 Agent 元数据和完整能力定义，显式填写 `access`、`input_schema` 和 `output_schema`。该模块是项目代码，会在本地构建时加载，应保持不依赖浏览器状态或凭据：
+在 `src/agent-tools.mjs` 导出 Agent 元数据和 `registerAgentTools`。在注册调用中显式填写 `access`、`input_schema`、`output_schema`，并在运行模式提供 handler。该模块是项目代码，会在本地构建时加载，应保持不依赖浏览器状态或凭据：
 
 ```js
 export const agentMetadata = {
@@ -49,43 +86,40 @@ export const agentMetadata = {
   examples: 'agent/examples.json',
 }
 
-export const capabilities = [{
-  name: 'read_document',
-  description: '读取当前文档摘要。',
-  access: 'read',
-  idempotent: true,
-  targets: ['web', 'desktop'],
-  input_schema: {
-    type: 'object',
-    properties: { document_id: { type: 'string' } },
-    required: ['document_id'],
-    additionalProperties: false,
-  },
-  output_schema: {
-    type: 'object',
-    properties: { id: { type: 'string' }, text: { type: 'string' } },
-    required: ['id', 'text'],
-    additionalProperties: false,
-  },
-}]
-
-export function capability(name) {
-  const declaration = capabilities.find(item => item.name === name)
-  if (!declaration) throw new Error('Unknown capability: ' + name)
-  return declaration
+export function registerAgentTools(registry, app) {
+  const collectOnly = app === undefined
+  const unregister = registry.register({
+    name: 'read_document',
+    description: '读取当前文档摘要。',
+    access: 'read',
+    idempotent: true,
+    targets: ['web', 'desktop'],
+    input_schema: {
+      type: 'object',
+      properties: { document_id: { type: 'string' } },
+      required: ['document_id'],
+      additionalProperties: false,
+    },
+    output_schema: {
+      type: 'object',
+      properties: { id: { type: 'string' }, text: { type: 'string' } },
+      required: ['id', 'text'],
+      additionalProperties: false,
+    },
+  }, collectOnly ? undefined : async (input, context) => {
+    context.signal.throwIfAborted()
+    return app.editor.readDocument(input.document_id)
+  })
+  return typeof unregister === 'function' ? [unregister] : []
 }
 ```
 
-处理器注册引用同一份定义：
+应用运行时把同一个函数接到 SDK registry；构建时不传第二个参数，CLI 会用 collector 收集声明：
 
 ```ts
-import { agent } from '@ducking-mind/proxy-app-sdk'
-import { capability } from './agent-tools.mjs'
-
-const unregister = agent.register<{ document_id: string }, { id: string; text: string }>(capability('read_document'), async (input, context) => {
-  context.signal.throwIfAborted()
-  return editor.readDocument(input.document_id)
-})
+const unregister = registerAgentTools({
+  register: (declaration, handler) => agent.register(declaration, handler!),
+}, { editor })
 
 agent.setStatus({ state: 'ready' }, { scope: 'editor', priority: 10 })
 await agent.ready()
@@ -95,7 +129,7 @@ await agent.ready()
 
 ### 迁移已有应用
 
-已发布应用包仍可使用旧版 manifest 契约；迁移仅影响源码校验、构建和后续发布。把旧 `manifest.agent` 中的元数据（`namespace`、`targets`、`contract_version`、`summary`、`keywords`、`guide`、`examples`）移到 `src/agent-tools.mjs` 的 `agentMetadata`，把 `capabilities` 数组原样移到同一文件并继续让业务处理器从 `capability(name)` 取得定义。旧的 `enabled` 和 `entry` 不需要迁移：模块存在时由构建生成启用的发布契约，入口按约定固定为 `src/agent-tools.mjs`。最后删除源码 manifest 中的整个 `agent` 字段，再运行 `proxy-app validate` 和 `proxy-app pack`。
+已发布应用包仍可使用旧版 manifest 契约；迁移仅影响源码校验、构建和后续发布。把旧 `manifest.agent` 中的元数据（`namespace`、`targets`、`contract_version`、`summary`、`keywords`、`guide`、`examples`）移到 `src/agent-tools.mjs` 的 `agentMetadata`，把每项 Schema 与真实处理器合并到 `registerAgentTools` 的注册调用。旧的 `enabled` 和 `entry` 不需要迁移：模块存在时由构建生成启用的发布契约，入口按约定固定为 `src/agent-tools.mjs`。最后删除源码 manifest 中的整个 `agent` 字段，再运行 `proxy-app validate` 和 `proxy-app pack`。独立 `capabilities` 数组会被 CLI 拒绝。
 
 ## 写能力的约束
 
@@ -114,7 +148,7 @@ await agent.ready()
 
 ## Web 与私有桌面宿主兼容目标
 
-新应用由 Portal 以同源顶层页面启动。这样用户资料、KV 和 Gateway 请求都使用平台的 App Session Cookie。
+新应用由 Portal 以同源顶层页面启动。Portal 用 HttpOnly 设备 Cookie 换取绑定应用和版本的 App Session，再交给当前标签页；应用访问用户资料、KV 和 Gateway 时携带该短期 bearer Session。设备 Cookie 不会暴露给应用代码。
 `proxy-app init` 生成的源码在开发环境选择 `local`。manifest 不声明 runtime，入口统一为根目录的 `index.html`。
 
 应用级 `agent.targets` 和能力级 `targets` 只能使用 `web`、`desktop`。这里的 `desktop` 是面向私有平台宿主的兼容目标；宿主源码、Electron 实现和发布流程不在公开仓库中。两种模式共用能力名、schema、授权和错误协议：

@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
 import { spawn } from 'node:child_process'
+import { realpathSync } from 'node:fs'
 import { lstat, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve, sep } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const runtimeDirectory = './agent-runtime/'
 const { normalizeCapabilityDeclaration, normalizeManifestAgent } = await import(new URL(`${runtimeDirectory}protocol.mjs`, import.meta.url))
@@ -37,7 +38,7 @@ async function assertSafeEntry(root, entry) {
 // the build validating Node's cached version. The child receives a path only
 // after it has passed the project-local source checks above.
 async function loadContract(target) {
-  const worker = `import { writeFileSync } from 'node:fs';\nconst module = await import(process.argv[1]);\nwriteFileSync(3, JSON.stringify({ agentMetadata: module.agentMetadata, capabilities: module.capabilities }));\nprocess.exit(0);`
+  const worker = `import { writeFileSync } from 'node:fs';\nconst module = await import(process.argv[1]);\nif (typeof module.registerAgentTools !== 'function') throw new Error('src/agent-tools.mjs must export registerAgentTools(); capability arrays are not supported');\nconst capabilities = [];\nconst cleanup = module.registerAgentTools({ register(declaration) { capabilities.push(declaration); return () => {}; } });\nif (cleanup !== undefined && !Array.isArray(cleanup)) throw new Error('registerAgentTools must return an array of cleanup functions or undefined');\nwriteFileSync(3, JSON.stringify({ agentMetadata: module.agentMetadata, capabilities }));\nprocess.exit(0);`
   return new Promise((resolvePromise, reject) => {
     const child = spawn(process.execPath, ['--input-type=module', '-e', worker, pathToFileURL(target).href], { stdio: ['ignore', 'ignore', 'pipe', 'pipe'] })
     const output = [], errors = []
@@ -55,7 +56,7 @@ async function loadContract(target) {
       if (failure) return reject(failure)
       if (code !== 0) return reject(new Error(`cannot load agent contract source: ${Buffer.concat(errors).toString().slice(0, 2048).trim() || `process exited with ${code}`}`))
       try { resolvePromise(JSON.parse(Buffer.concat(output).toString())) }
-      catch { reject(new Error('src/agent-tools.mjs must export JSON-serializable agentMetadata and capabilities')) }
+      catch { reject(new Error('src/agent-tools.mjs must expose JSON-serializable agentMetadata and capabilities through registerAgentTools()')) }
     })
   })
 }
@@ -63,7 +64,9 @@ async function loadContract(target) {
 /**
  * Resolve the code-owned Agent contract for a local source project.
  * `src/agent-tools.mjs` is discovered by convention; source manifests never
- * opt into or enumerate Agent capabilities. Installed packages carry the
+ * opt into or enumerate Agent capabilities. The module's registration function
+ * is executed with a collector, so the package contract is derived from the
+ * same code path that binds runtime handlers. Installed packages carry the
  * generated contract so MCP can discover tools before launching the app.
  */
 export async function resolveAgentContract(root, manifest) {
@@ -79,7 +82,7 @@ export async function resolveAgentContract(root, manifest) {
     throw error
   }
   const { agentMetadata, capabilities } = await loadContract(target)
-  if (!Array.isArray(capabilities) || capabilities.length > 64) throw new Error('src/agent-tools.mjs must export capabilities as an array with at most 64 entries')
+  if (!Array.isArray(capabilities) || capabilities.length > 64) throw new Error('src/agent-tools.mjs must register at most 64 capabilities')
   if (!isRecord(agentMetadata)) throw new Error('src/agent-tools.mjs must export agentMetadata as an object')
   const allowedMetadata = new Set(['namespace', 'targets', 'contract_version', 'summary', 'keywords', 'guide', 'examples'])
   for (const key of Object.keys(agentMetadata)) if (!allowedMetadata.has(key)) throw new Error(`unsupported agentMetadata field: ${key}`)
@@ -113,7 +116,11 @@ export async function writeAgentContract(root, destination) {
   return manifest
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+const invokedDirectly = process.argv[1] && (() => {
+  try { return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url)) } catch { return false }
+})()
+
+if (invokedDirectly) {
   try {
     const [, , root = '.', destination = 'dist'] = process.argv
     await writeAgentContract(root, destination)

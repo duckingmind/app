@@ -1,5 +1,10 @@
-export type CreativeMode = 'chat' | 'image' | 'video' | 'music'
+export type CreativeMode = 'chat' | 'image' | 'video' | 'music' | 'voice'
 export type CreativeMediaType = 'image' | 'video' | 'audio'
+
+/** Image editing consumes its reference files in one multipart operation. */
+export function creativeReferenceTransport(mode: CreativeMode): 'operation' | 'cos' {
+  return mode === 'image' ? 'operation' : 'cos'
+}
 
 export type CreativeModel = {
   id?: string
@@ -94,7 +99,9 @@ export function modelsForMode(payload: unknown, mode: CreativeMode): CreativeMod
         ? type === 'image'
         : mode === 'video'
           ? type === 'video'
-          : (type === 'audio' || type === 'music') && !/^minimax-voice-design$/i.test(id)
+          : mode === 'music'
+            ? (type === 'audio' || type === 'music') && !/^minimax-voice-design$/i.test(id)
+            : (type === 'audio' || type === 'music') && /^minimax-voice-design$/i.test(id)
     if (!id || !matches || model.available === false || seen.has(id)) return false
     seen.add(id)
     return true
@@ -305,28 +312,41 @@ export function taskIdFrom(value: unknown): string {
   const details = isRecord(value.details) ? value.details : {}
   const nested = isRecord(value.task) ? value.task : {}
   const objectType = String(value.object || '').toLowerCase()
-  const publicTaskID = ['video', 'music_task', 'image_task', 'image_generation_task'].includes(objectType) ? value.id : ''
+  const publicTaskID = ['video', 'music_task', 'image_task', 'image_generation_task', 'voice_design_task'].includes(objectType) ? value.id : ''
   const id = String(value.task_id || details.task_id || nested.id || publicTaskID || '')
   return /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(id) ? id : ''
 }
 
 export function taskStatus(value: unknown): 'complete' | 'failed' | 'pending' {
   if (!isRecord(value)) return 'pending'
-  const error = isRecord(value.error) ? value.error : {}
-  const status = String(value.status || value.task_status || value.phase || '').trim().toLowerCase()
+  const task = isRecord(value.task) ? value.task : {}
+  const error = isRecord(value.error) ? value.error : isRecord(task.error) ? task.error : {}
+  const status = String(value.status || value.task_status || value.phase || task.status || task.task_status || task.phase || '').trim().toLowerCase()
   if (['completed', 'complete', 'succeeded', 'success', 'done'].includes(status)) return 'complete'
   if (['failed', 'failure', 'expired', 'cancelled', 'canceled', 'refunded'].includes(status)) return 'failed'
-  if ((error.code || value.error_message) && status !== 'unknown' && !['pending', 'in_progress', 'queued', 'running', 'dispatching'].includes(status)) return 'failed'
+  if ((error.code || value.error_message || task.error_message) && status !== 'unknown' && !['pending', 'in_progress', 'queued', 'running', 'dispatching'].includes(status)) return 'failed'
   return 'pending'
+}
+
+export function voiceIdFrom(value: unknown): string {
+  if (!isRecord(value)) return ''
+  const nested = isRecord(value.task) ? value.task : {}
+  return String(value.voice_id || nested.voice_id || '').trim().slice(0, 256)
 }
 
 export function assetsFromResponse(value: unknown, type: CreativeMediaType): CreativeAsset[] {
   if (!isRecord(value)) return []
+  const task = isRecord(value.task) ? value.task : {}
   const candidates: unknown[] = []
   if (Array.isArray(value.assets)) candidates.push(...value.assets)
   if (Array.isArray(value.data)) candidates.push(...value.data)
   if (Array.isArray(value.images)) candidates.push(...value.images)
+  if (Array.isArray(task.assets)) candidates.push(...task.assets)
+  if (Array.isArray(task.data)) candidates.push(...task.data)
+  if (Array.isArray(task.images)) candidates.push(...task.images)
+  if (isRecord(value.trial_audio) && value.trial_audio.available !== false) candidates.push(value.trial_audio)
   if (!candidates.length && (value.url || value.content_url || value.b64_json || value.image)) candidates.push(value)
+  if (!candidates.length && (task.url || task.content_url || task.b64_json || task.image)) candidates.push(task)
   const taskId = taskIdFrom(value)
   const assets: CreativeAsset[] = []
   for (const candidate of candidates) {
@@ -361,6 +381,15 @@ export function taskPath(mode: Exclude<CreativeMode, 'chat'>, id: string) {
   const safeID = encodeURIComponent(id)
   if (mode === 'image') return `/images/tasks/${safeID}`
   if (mode === 'video') return `/videos/${safeID}`
+  if (mode === 'voice') return `/voice-design/tasks/${safeID}`
+  return `/music/tasks/${safeID}`
+}
+
+export function taskCancelPath(mode: Exclude<CreativeMode, 'chat'>, id: string) {
+  const safeID = encodeURIComponent(id)
+  if (mode === 'image') return ''
+  if (mode === 'video') return `/videos/${safeID}`
+  if (mode === 'voice') return `/voice-design/tasks/${safeID}`
   return `/music/tasks/${safeID}`
 }
 
@@ -368,6 +397,7 @@ export function submissionLookupPath(mode: Exclude<CreativeMode, 'chat'>, key: s
   const safeKey = encodeURIComponent(key)
   if (mode === 'image') return `/images/by-idempotency-key/${safeKey}`
   if (mode === 'video') return `/videos/by-idempotency-key/${safeKey}`
+  if (mode === 'voice') return `/voice-design/by-idempotency-key/${safeKey}`
   return `/music/by-idempotency-key/${safeKey}`
 }
 
